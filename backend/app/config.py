@@ -21,5 +21,8 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen3:8b"
     ollama_timeout_seconds: float = 120.0
 
+    gpt_sovits_base_url: str = "http://127.0.0.1:9880/"
+    gpt_sovits_timeout_seconds: float = 180.0
+
 
 settings = Settings()

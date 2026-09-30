@@ -13,7 +13,9 @@ from fastapi import FastAPI
 from app.agent.agent_core import AgentCore
 from app.config import settings
 from app.models.llm.ollama import OllamaChat
+from app.models.tts.gpt_sovits import GptSovitsTts
 from app.transport.control_ws import router as control_router
+from app.transport.tts_http import router as tts_router
 
 
 @asynccontextmanager
@@ -22,6 +24,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.agent = AgentCore(
             OllamaChat(settings.ollama_base_url, settings.ollama_model, client)
         )
+        app.state.tts = GptSovitsTts(settings.gpt_sovits_base_url, client)
         yield
 
 
@@ -33,6 +36,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(control_router)
+    app.include_router(tts_router)
     return app
 
 

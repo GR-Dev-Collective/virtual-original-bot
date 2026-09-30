@@ -5,9 +5,8 @@ services:
     restart: unless-stopped
     runtime: nvidia
     environment:
-      is_half: "true"
+      is_half: "True"
     ports:
-      - "9874:9874"
       - "9880:9880"
     volumes:
       - ./models:/workspace/models
@@ -22,3 +21,24 @@ services:
       python api.py -a 0.0.0.0 -p 9880 -d cuda
       -s /workspace/models/custom/murasame_v2_e6_s6450.pth
       -g /workspace/models/custom/murasame_v2-e4.ckpt"
+
+  gpt-sovits-webui:
+    image: xxxxrt666/gpt-sovits:latest-cu126-lite
+    container_name: virtual-original-bot-gpt-sovits-webui
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      is_half: "True"
+    ports:
+      - "9872:9872"
+    volumes:
+      - ./models:/workspace/models
+      - ./data:/workspace/data
+    shm_size: "16g"
+    command: >-
+      bash -lc "rm -rf GPT_SoVITS/pretrained_models GPT_SoVITS/text/G2PWModel tools/asr/models tools/uvr5/uvr5_weights &&
+      ln -s /workspace/models/pretrained_models GPT_SoVITS/pretrained_models &&
+      ln -s /workspace/models/G2PWModel GPT_SoVITS/text/G2PWModel &&
+      ln -s /workspace/models/asr_models tools/asr/models &&
+      ln -s /workspace/models/uvr5_weights tools/uvr5/uvr5_weights &&
+      infer_ttswebui=9872 is_share=False python GPT_SoVITS/inference_webui.py"
