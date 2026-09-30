@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:"
+    />
+    <title>virtual-original-bot</title>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand__dot"></span>
+          <h1>virtual-original-bot</h1>
+        </div>
+        <span id="status" class="status status--connecting">连接中…</span>
+      </header>
+
+      <main id="messages" class="messages" aria-live="polite"></main>
+
+      <form id="composer" class="composer">
+        <input
+          id="input"
+          class="composer__input"
+          type="text"
+          autocomplete="off"
+          placeholder="输入文本，回车发送"
+        />
+        <button id="send" class="composer__send" type="submit">发送</button>
+      </form>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,16 +1,22 @@
 {
   "name": "desktop",
   "version": "1.0.0",
-  "description": "\"广州软件学院小组制作\"",
+  "description": "广州软件学院小组制作",
   "license": "MIT",
   "author": "PingGuoMiaoMiao",
   "type": "commonjs",
-  "main": "index.ts",
+  "main": "./out/main/index.js",
   "scripts": {
-    "start": "electron .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "electron": "^44.1.0"
+    "@types/node": "^26.6.3",
+    "electron": "^44.1.0",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6"
   }
 }
