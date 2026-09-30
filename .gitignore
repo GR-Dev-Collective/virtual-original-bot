@@ -23,6 +23,7 @@ __pycache__/
 docker/gpt-sovits/models/
 docker/gpt-sovits/data/outputs/
 docker/gpt-sovits/training/logs/
+docker/gpt-sovits/training/progress.jsonl
 *.pth
 *.ckpt
 
