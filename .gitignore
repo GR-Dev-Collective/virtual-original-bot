@@ -24,6 +24,7 @@ docker/gpt-sovits/models/
 docker/gpt-sovits/data/outputs/
 docker/gpt-sovits/training/logs/
 docker/gpt-sovits/training/progress.jsonl
+docker/gpt-sovits/training/generated/
 *.pth
 *.ckpt
 
