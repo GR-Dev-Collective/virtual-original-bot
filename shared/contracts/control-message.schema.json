@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://virtual-original-bot/shared/contracts/control-message.schema.json",
+  "title": "ControlMessage",
+  "description": "控制通道（/ws/control）上传输的消息信封。前端 TS 类型与后端 pydantic 模型必须与本 schema 保持一致。",
+  "type": "object",
+  "required": ["type", "id", "ts", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "description": "消息类型，决定 payload 的形状。",
+      "enum": ["session.ready", "user.text", "agent.text", "error"]
+    },
+    "id": {
+      "description": "本条消息的唯一标识，由发送方生成。",
+      "type": "string",
+      "minLength": 1
+    },
+    "ts": {
+      "description": "发送时间，Unix 毫秒时间戳。",
+      "type": "integer",
+      "minimum": 0
+    },
+    "payload": {
+      "description": "消息体，形状由 type 决定。",
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "session.ready" } } },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/definitions/sessionReadyPayload" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "user.text" } } },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/definitions/userTextPayload" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "agent.text" } } },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/definitions/agentTextPayload" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "error" } } },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/definitions/errorPayload" }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "sessionReadyPayload": {
+      "type": "object",
+      "required": ["session_id"],
+      "additionalProperties": false,
+      "properties": {
+        "session_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "userTextPayload": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "agentTextPayload": {
+      "type": "object",
+      "required": ["text", "reply_to"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string" },
+        "reply_to": {
+          "description": "所回应的 user.text 消息的 id。",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "errorPayload": {
+      "type": "object",
+      "required": ["code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" },
+        "reply_to": {
+          "description": "触发该错误的入站消息 id；无法关联时为 null。",
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}
