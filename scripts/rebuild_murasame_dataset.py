@@ -160,6 +160,10 @@ def stage_transcribe(args):
     write_final(args, names, done)
 
 
+MIN_RATE = 1.5
+MAX_RATE = 12.0
+
+
 def write_final(args, names, texts):
     fix_counts = {pattern.pattern: 0 for pattern, _ in FIXES}
     dropped_late = []
@@ -174,6 +178,27 @@ def write_final(args, names, texts):
         if tokens >= LEAK_TOKEN_THRESHOLD:
             dropped_late.append((name, "疑似提示词泄漏"))
             continue
+        # 后置过滤：重转写本身也可能重新引入幻觉与失控输出
+        if HALLUCINATION.search(text):
+            dropped_late.append((name, "重转写后仍为幻觉"))
+            continue
+        if REPEATED_KANA.search(text):
+            dropped_late.append((name, "重转写后仍为重复假名"))
+            continue
+        if LATIN.search(text):
+            dropped_late.append((name, "重转写后含拉丁字母"))
+            continue
+
+        duration = duration_of(os.path.join(args.wav_dir, name))
+        if duration > 0:
+            rate = len(text) / duration
+            if rate < MIN_RATE:
+                dropped_late.append((name, "重转写后语速异常(%.2f 字/秒)" % rate))
+                continue
+            if rate > MAX_RATE:
+                dropped_late.append((name, "重转写后语速异常(%.2f 字/秒)" % rate))
+                continue
+
         for pattern, replacement in FIXES:
             text, count = pattern.subn(replacement, text)
             fix_counts[pattern.pattern] += count
@@ -198,9 +223,33 @@ def write_final(args, names, texts):
     print("最终 %d 条 -> %s" % (len(final), args.out_list))
 
 
+def stage_finalize(args):
+    """只重跑过滤与修正，不碰 GPU —— 从 progress.jsonl 重新生成最终清单。"""
+    with open(args.kept_path, encoding="utf-8") as handle:
+        names = [line.strip() for line in handle if line.strip()]
+
+    if not os.path.isfile(args.progress_path):
+        raise SystemExit("缺少重转写进度文件：%s" % args.progress_path)
+
+    texts = {}
+    with open(args.progress_path, encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                row = json.loads(line)
+                texts[row["name"]] = row["text"]
+            except (ValueError, KeyError):
+                continue
+
+    missing = [n for n in names if n not in texts]
+    if missing:
+        raise SystemExit("progress.jsonl 缺少 %d 条，请先跑完 transcribe 阶段" % len(missing))
+
+    write_final(args, names, texts)
+
+
 def main():
     parser = argparse.ArgumentParser(description="重建丛雨训练集")
-    parser.add_argument("--stage", choices=("drop", "transcribe"), required=True)
+    parser.add_argument("--stage", choices=("drop", "transcribe", "finalize"), required=True)
     parser.add_argument("--src-list", default=DEFAULT_SRC_LIST)
     parser.add_argument("--wav-dir", default=DEFAULT_WAV_DIR)
     parser.add_argument("--model", default=DEFAULT_MODEL)
@@ -231,6 +280,10 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     if args.stage == "drop":
         stage_drop(args)
+    elif args.stage == "finalize":
+        if not os.path.isfile(args.kept_path):
+            raise SystemExit("请先执行 --stage drop，缺少 %s" % args.kept_path)
+        stage_finalize(args)
     else:
         if not os.path.isfile(args.kept_path):
             raise SystemExit("请先执行 --stage drop，缺少 %s" % args.kept_path)
