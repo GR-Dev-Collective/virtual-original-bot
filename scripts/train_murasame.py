@@ -158,9 +158,16 @@ def run(command, cwd, env=None):
 
 
 def write_config(path, payload):
+    """写出配置。
+
+    必须用 ASCII 转义（ensure_ascii=True）：GPT-SoVITS 的 utils.get_hparams 里是
+    `open(config_path, "r")`，没有指定 encoding，会按系统默认编码（中文 Windows 上是
+    GBK）读取。路径里含中文目录名时会被解码坏掉，表现为 os.path.exists 返回 False，
+    而打印出来的路径看起来完全正常。转义后文件是纯 ASCII，任何编码读都还原正确。
+    """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    with open(path, "w", encoding="ascii") as handle:
+        json.dump(payload, handle, ensure_ascii=True, indent=2)
     print("配置 -> %s" % path)
 
 
@@ -168,15 +175,15 @@ def stage_prepare(args):
     exp_dir = os.path.join(args.root, "logs", args.exp)
     gsv = os.path.join(args.root, "GPT_SoVITS")
     os.makedirs(exp_dir, exist_ok=True)
+    py = [args.venv_python, "-u"]
 
     # 1) 文本音素：文本变了，必须重算
     # 脚本位于 prepare_datasets/ 下，Python 只会把该目录加进 sys.path，
     # 而它要 import 的 text 在 GPT_SoVITS 下、tools 在仓库根下，因此两者都要给。
     run(
-        [args.venv_python, "prepare_datasets/1-get-text.py"],
+        [*py, "prepare_datasets/1-get-text.py"],
         cwd=gsv,
         env={
-            "PYTHONPATH": os.pathsep.join([args.root, gsv]),
             "inp_text": args.list,
             "inp_wav_dir": args.wavs,
             "exp_name": args.exp,
@@ -192,8 +199,10 @@ def stage_prepare(args):
     )
 
     # 2) 音频侧缓存：与文本无关，从上次实验直接复用
+    #    data_utils.TextAudioSpeakerLoader 会断言这三个路径都存在：
+    #    2-name2text.txt（本次重算）、4-cnhubert、5-wav32k
     previous = os.path.join(args.root, "logs", PREVIOUS_EXP)
-    for name in ("4-cnhubert", "6-name2semantic-0.tsv"):
+    for name in ("4-cnhubert", "5-wav32k", "6-name2semantic-0.tsv"):
         source = os.path.join(previous, name)
         target = os.path.join(exp_dir, name)
         if not os.path.exists(source):
@@ -247,6 +256,7 @@ def prune_semantic(exp_dir, phoneme_path):
 def stage_sovits(args):
     exp_dir = os.path.join(args.root, "logs", args.exp)
     pretrained = os.path.join(args.root, "GPT_SoVITS", "pretrained_models", "gsv-v2final-pretrained")
+    py = [args.venv_python, "-u"]
 
     config = json.loads(json.dumps(S2_CONFIG))
     config["train"]["pretrained_s2G"] = os.path.join(pretrained, "s2G2333k.pth")
@@ -260,7 +270,7 @@ def stage_sovits(args):
     write_config(config_path, config)
 
     run(
-        [args.venv_python, "s2_train.py", "-c", config_path],
+        [*py, "s2_train.py", "-c", config_path],
         cwd=os.path.join(args.root, "GPT_SoVITS"),
     )
 
@@ -274,6 +284,7 @@ def stage_gpt(args):
         "gsv-v2final-pretrained",
         "s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt",
     )
+    py = [args.venv_python, "-u"]
 
     config = json.loads(json.dumps(S1_CONFIG))
     config["output_dir"] = os.path.join(exp_dir, "logs_s1_v2")
@@ -285,7 +296,7 @@ def stage_gpt(args):
     write_config(config_path, config)
 
     run(
-        [args.venv_python, "s1_train.py", "-c", config_path, "-p", pretrained],
+        [*py, "s1_train.py", "-c", config_path, "-p", pretrained],
         cwd=os.path.join(args.root, "GPT_SoVITS"),
     )
 
@@ -316,6 +327,14 @@ def main():
 
     if args.exp == PREVIOUS_EXP:
         raise SystemExit("实验名不能是 %s，会覆盖已有权重" % PREVIOUS_EXP)
+
+    # GPT-SoVITS 的脚本大量 `from tools...` / `from text...`，而这两个包分别位于
+    # 仓库根和 GPT_SoVITS 下。显式设定，避免依赖调用方当前目录。
+    gsv = os.path.join(args.root, "GPT_SoVITS")
+    existing = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = os.pathsep.join(
+        [p for p in (args.root, gsv, existing) if p]
+    )
 
     {"prepare": stage_prepare, "sovits": stage_sovits, "gpt": stage_gpt}[args.stage](args)
 
