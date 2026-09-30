@@ -31,6 +31,16 @@
 | `agent.text` | 后端 → 前端 | `{ text, reply_to }` | Agent 回复，`reply_to` 指向对应的 `user.text` |
 | `error` | 后端 → 前端 | `{ code, message, reply_to? }` | 入站消息非法或处理失败；`reply_to` 可能为 `null` |
 
+### error 的 code
+
+| code | 含义 |
+|---|---|
+| `invalid_message` | 信封或 payload 不符合本协议 |
+| `unsupported_type` | 信封合法，但该类型不应由前端发送 |
+| `llm_unavailable` | 对话模型不可达、超时或返回无法解析的响应 |
+
+收到 `error` 不会关闭连接，前端可以继续发送后续消息。
+
 ## 时序
 
 ```text

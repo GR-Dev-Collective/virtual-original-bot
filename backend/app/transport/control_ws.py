@@ -7,7 +7,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from app.agent.agent_core import AgentCore
+from app.models.llm import ChatModel, LlmUnavailable
 from app.state.session import SessionState
 from app.transport.messages import (
     AgentTextPayload,
@@ -21,8 +21,6 @@ from app.transport.messages import (
 
 router = APIRouter()
 
-agent = AgentCore()
-
 
 @router.websocket("/ws/control")
 async def control_channel(websocket: WebSocket) -> None:
@@ -33,15 +31,17 @@ async def control_channel(websocket: WebSocket) -> None:
         build(MessageType.SESSION_READY, SessionReadyPayload(session_id=session.id))
     )
 
+    agent: ChatModel = websocket.app.state.agent
+
     try:
         while True:
             raw = await websocket.receive_text()
-            await _dispatch(websocket, raw)
+            await _dispatch(websocket, agent, raw)
     except WebSocketDisconnect:
         return
 
 
-async def _dispatch(websocket: WebSocket, raw: str) -> None:
+async def _dispatch(websocket: WebSocket, agent: ChatModel, raw: str) -> None:
     try:
         message = ControlMessage.model_validate_json(raw)
     except ValidationError as exc:
@@ -52,7 +52,7 @@ async def _dispatch(websocket: WebSocket, raw: str) -> None:
         await _send_error(
             websocket,
             "unsupported_type",
-            f"Phase 1 只接受 user.text，收到 {message.type}",
+            f"当前只接受 user.text，收到 {message.type}",
             message.id,
         )
         return
@@ -63,7 +63,12 @@ async def _dispatch(websocket: WebSocket, raw: str) -> None:
         await _send_error(websocket, "invalid_message", _describe(exc), message.id)
         return
 
-    reply = await agent.handle_user_text(payload.text)
+    try:
+        reply = await agent.handle_user_text(payload.text)
+    except LlmUnavailable as exc:
+        await _send_error(websocket, "llm_unavailable", str(exc), message.id)
+        return
+
     await websocket.send_json(
         build(MessageType.AGENT_TEXT, AgentTextPayload(text=reply, reply_to=message.id))
     )

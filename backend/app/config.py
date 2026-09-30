@@ -17,5 +17,9 @@ class Settings(BaseSettings):
     port: int = 8090
     log_level: str = "info"
 
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "qwen3:8b"
+    ollama_timeout_seconds: float = 120.0
+
 
 settings = Settings()

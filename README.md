@@ -12,12 +12,13 @@
 
 - 后端分层骨架：`backend/app/`，含控制通道 WebSocket `/ws/control`
 - 控制通道协议契约：`shared/contracts/`
+- 本地 LLM 接入：经 Ollama 调用 `qwen3:8b`
 - GPT-SoVITS 推理服务（Docker）：`docker/gpt-sovits/`
 - Electron 桌面端：`apps/desktop/`
 
-**Phase 1（Electron ↔ FastAPI 基础通信）**：后端一侧已完成并通过测试，前端 Electron 一侧正在搭建。
+**Phase 1（Electron ↔ FastAPI 基础通信）已完成**：Electron 发文本，后端经 Agent Core 交给本地 LLM，再把回复文本回传渲染进程。
 
-Whisper、LLM、Vision、OCR、Memory、Action 等能力属于后续规划模块，尚未在当前仓库中完成接入。
+ASR、TTS 接入、Vision、OCR、Memory、Action 属于后续规划模块，尚未在当前仓库中完成接入。
 
 ## 技术栈
 
@@ -67,6 +68,19 @@ virtual-original-bot/
 ```
 
 ## 运行
+
+### 前置：本地 LLM
+
+后端通过 Ollama 调用本地模型，默认 `qwen3:8b`：
+
+```powershell
+ollama pull qwen3:8b
+ollama serve
+```
+
+模型名与服务地址可在 `backend/.env` 中用 `OLLAMA_MODEL`、`OLLAMA_BASE_URL` 覆盖。
+关掉模型思考输出（`think=false`）是刻意选择：qwen3 的思考内容对本项目没有价值，
+却会把首字延迟从约 3 秒拉到 15 秒以上。
 
 ### 后端
 
