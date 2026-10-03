@@ -9,7 +9,7 @@
   "properties": {
     "type": {
       "description": "消息类型，决定 payload 的形状。",
-      "enum": ["session.ready", "user.text", "agent.text", "error"]
+      "enum": ["session.ready", "user.text", "agent.text", "tts.started", "tts.ready", "tts.cancel", "tts.cancelled", "error"]
     },
     "id": {
       "description": "本条消息的唯一标识，由发送方生成。",
@@ -52,6 +52,38 @@
       }
     },
     {
+      "if": { "properties": { "type": { "const": "tts.started" } } },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/definitions/ttsStartedPayload" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "tts.ready" } } },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/definitions/ttsReadyPayload" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "tts.cancel" } } },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/definitions/ttsCancelPayload" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "tts.cancelled" } } },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/definitions/ttsCancelledPayload" }
+        }
+      }
+    },
+    {
       "if": { "properties": { "type": { "const": "error" } } },
       "then": {
         "properties": {
@@ -88,6 +120,43 @@
           "type": "string",
           "minLength": 1
         }
+      }
+    },
+    "ttsStartedPayload": {
+      "type": "object",
+      "required": ["tts_id", "reply_to"],
+      "additionalProperties": false,
+      "properties": {
+        "tts_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ttsReadyPayload": {
+      "type": "object",
+      "required": ["tts_id", "reply_to", "audio_url"],
+      "additionalProperties": false,
+      "properties": {
+        "tts_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 },
+        "audio_url": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ttsCancelPayload": {
+      "type": "object",
+      "required": ["tts_id"],
+      "additionalProperties": false,
+      "properties": {
+        "tts_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ttsCancelledPayload": {
+      "type": "object",
+      "required": ["tts_id", "reply_to", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "tts_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
       }
     },
     "errorPayload": {

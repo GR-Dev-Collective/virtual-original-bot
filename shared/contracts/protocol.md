@@ -29,6 +29,10 @@
 | `session.ready` | 后端 → 前端 | `{ session_id }` | 连接建立后由后端首先发出 |
 | `user.text` | 前端 → 后端 | `{ text }` | 用户提交的文本 |
 | `agent.text` | 后端 → 前端 | `{ text, reply_to }` | Agent 回复，`reply_to` 指向对应的 `user.text` |
+| `tts.started` | 后端 → 前端 | `{ tts_id, reply_to }` | TTS 任务开始 |
+| `tts.ready` | 后端 → 前端 | `{ tts_id, reply_to, audio_url }` | 音频已生成，可播放 |
+| `tts.cancel` | 前端 → 后端 | `{ tts_id }` | 请求取消当前 TTS |
+| `tts.cancelled` | 后端 → 前端 | `{ tts_id, reply_to, reason }` | TTS 任务已取消 |
 | `error` | 后端 → 前端 | `{ code, message, reply_to? }` | 入站消息非法或处理失败；`reply_to` 可能为 `null` |
 
 ### error 的 code

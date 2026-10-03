@@ -14,7 +14,8 @@ docker compose up -d
 服务地址：
 
 - 推理 API：`http://127.0.0.1:9880/`
-- WebUI 端口：`http://127.0.0.1:9874/`（当前 Compose 只启动 API，不自动启动 WebUI）
+- WebUI：默认不启动；镜像当前存在 Gradio/Jinja2 兼容问题
+- 如需实验性启动 WebUI：`docker compose --profile webui up -d gpt-sovits-webui`，端口为 `http://127.0.0.1:9872/`
 
 ## 查看日志
 

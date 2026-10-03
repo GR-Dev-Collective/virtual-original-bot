@@ -17,9 +17,10 @@ class TtsRequest:
 
 
 class GptSovitsTts:
-    def __init__(self, base_url: str, client: httpx.AsyncClient) -> None:
+    def __init__(self, base_url: str, client: httpx.AsyncClient, timeout: float = 180.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._client = client
+        self._timeout = timeout
 
     async def synthesize(self, request: TtsRequest) -> bytes:
         payload = {
@@ -32,7 +33,11 @@ class GptSovitsTts:
                 payload[key] = value
 
         try:
-            response = await self._client.post(self._base_url, json=payload)
+            response = await self._client.post(
+                self._base_url,
+                json=payload,
+                timeout=self._timeout,
+            )
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise TtsUnavailable(f"GPT-SoVITS 请求失败: {exc}") from exc

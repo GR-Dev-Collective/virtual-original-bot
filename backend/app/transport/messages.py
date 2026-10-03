@@ -16,6 +16,10 @@ class MessageType(StrEnum):
     SESSION_READY = "session.ready"
     USER_TEXT = "user.text"
     AGENT_TEXT = "agent.text"
+    TTS_STARTED = "tts.started"
+    TTS_READY = "tts.ready"
+    TTS_CANCEL = "tts.cancel"
+    TTS_CANCELLED = "tts.cancelled"
     ERROR = "error"
 
 
@@ -37,6 +41,27 @@ class UserTextPayload(BaseModel):
 class AgentTextPayload(BaseModel):
     text: str
     reply_to: str = Field(min_length=1)
+
+
+class TtsStartedPayload(BaseModel):
+    tts_id: str = Field(min_length=1)
+    reply_to: str = Field(min_length=1)
+
+
+class TtsReadyPayload(BaseModel):
+    tts_id: str = Field(min_length=1)
+    reply_to: str = Field(min_length=1)
+    audio_url: str = Field(min_length=1)
+
+
+class TtsCancelPayload(BaseModel):
+    tts_id: str = Field(min_length=1)
+
+
+class TtsCancelledPayload(BaseModel):
+    tts_id: str = Field(min_length=1)
+    reply_to: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
 
 
 class ErrorPayload(BaseModel):

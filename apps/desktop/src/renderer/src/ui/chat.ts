@@ -10,8 +10,12 @@ export type MessageRole = 'user' | 'agent' | 'system'
 
 export interface ChatView {
   onSend(handler: (text: string) => void): void
+  onStopAudio(handler: () => void): void
+  onRecord(handler: (recording: boolean) => void): void
   appendMessage(role: MessageRole, text: string): void
   setStatus(status: ConnectionStatus): void
+  setAudioPlaying(playing: boolean): void
+  setRecording(recording: boolean): void
 }
 
 function requireElement<T extends HTMLElement>(id: string): T {
@@ -27,8 +31,12 @@ export function createChatView(): ChatView {
   const composer = requireElement<HTMLFormElement>('composer')
   const input = requireElement<HTMLInputElement>('input')
   const status = requireElement<HTMLElement>('status')
+  const stopAudio = requireElement<HTMLButtonElement>('stop-audio')
+  const record = requireElement<HTMLButtonElement>('record')
 
   let send: (text: string) => void = () => {}
+  let recordHandler: (recording: boolean) => void = () => {}
+  let stop: () => void = () => {}
 
   function appendMessage(role: MessageRole, text: string): void {
     const item = document.createElement('div')
@@ -42,6 +50,9 @@ export function createChatView(): ChatView {
     messages.append(item)
     messages.scrollTop = messages.scrollHeight
   }
+
+  stopAudio.addEventListener('click', () => stop())
+  record.addEventListener('click', () => recordHandler(record.dataset.recording !== 'true'))
 
   composer.addEventListener('submit', (event) => {
     event.preventDefault()
@@ -60,10 +71,24 @@ export function createChatView(): ChatView {
     onSend(handler) {
       send = handler
     },
+    onStopAudio(handler) {
+      stop = handler
+    },
+    onRecord(handler) {
+      recordHandler = handler
+    },
     appendMessage,
     setStatus(next) {
       status.textContent = STATUS_TEXT[next]
       status.className = `status status--${next}`
+    },
+    setAudioPlaying(playing) {
+      stopAudio.disabled = !playing
+    },
+    setRecording(recording) {
+      record.dataset.recording = String(recording)
+      record.textContent = recording ? '停止录音' : '开始录音'
+      record.disabled = false
     }
   }
 }

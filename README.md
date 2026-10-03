@@ -4,21 +4,35 @@
 
 项目目标是让虚拟角色能够通过文本、语音和视觉输入理解用户，并通过语音、Live2D 表情、情绪状态和可控动作进行反馈。
 
-当前项目处于原型搭建阶段。现阶段优先验证 Electron 与 FastAPI 的通信边界，再逐步接入 ASR、LLM、TTS、Vision、Memory 和 Action 等模块。
+项目处于桌面原型阶段。基础通信、Ollama 对话、GPT-SoVITS TTS、ASR 接口和 Live2D 本地验证界面已接入；第二阶段的 Electron 语音播放/取消验收仍在进行。
 
 ## 当前状态
 
 当前仓库已经包含：
 
-- 后端分层骨架：`backend/app/`，含控制通道 WebSocket `/ws/control`
-- 控制通道协议契约：`shared/contracts/`
-- 本地 LLM 接入：经 Ollama 调用 `qwen3:8b`
-- GPT-SoVITS 推理服务（Docker）：`docker/gpt-sovits/`
-- Electron 桌面端：`apps/desktop/`
+- FastAPI 控制通道 WebSocket：`backend/app/transport/control_ws.py`
+- 文本 Agent：经 Ollama 调用 `qwen3:8b`
+- GPT-SoVITS Docker 推理服务：`docker/gpt-sovits/`
+- GPT-SoVITS TTS Adapter、音频资源接口和 TTS 生命周期事件
+- Electron 文本聊天、TTS 播放、停止语音和单次录音按钮
+- faster-whisper ASR HTTP 接口：`POST /asr`
+- Live2D Cubism 渲染、Mao PRO 示例动作/表情验证控件和 TTS 期间的口型状态代码
+- 共享控制协议：`shared/contracts/`
 
-**Phase 1（Electron ↔ FastAPI 基础通信）已完成**：Electron 发文本，后端经 Agent Core 交给本地 LLM，再把回复文本回传渲染进程。
+当前已接入并通过接口检查的流程：
 
-ASR、TTS 接入、Vision、OCR、Memory、Action 属于后续规划模块，尚未在当前仓库中完成接入。
+```text
+文本输入 → Ollama → GPT-SoVITS → 音频资源接口
+音频上传 → faster-whisper → Ollama → GPT-SoVITS → 音频资源接口
+```
+
+ASR 需要本地存在 `ASR_MODEL_PATH` 指向的 faster-whisper 模型。Mao PRO 仅用于临时验证 Live2D 加载、动作和表情；Agent 设定与语音仍是丛雨。Mao 模型文件及 Cubism Core 放在被 Git 忽略的 `apps/desktop/public/live2d/mao/`，不随仓库分发。模型要求 moc3 版本 5，需在该目录提供兼容 Core；当前本机验证使用 Core 5.1.0。使用模型前需遵守压缩包中的 Live2D Free Material License Agreement 和 Terms of Use；Core 也受 Live2D SDK 许可条款约束。
+
+桌面端自动播放、停止/取消与说话时 `ParamA` 的实际联动尚未在 Electron 窗口中完成验收。浏览器页面检查中，浏览器容器拒绝了延迟到达的自动播放请求；Electron 窗口已设置 `no-user-gesture-required` 播放策略，仍需在应用窗口确认播放结果。
+
+当前 ASR 默认使用 CPU `int8`，不依赖主机上的 CUDA 动态库。需要 GPU 时，可通过 `ASR_DEVICE` 和 `ASR_COMPUTE_TYPE` 配置；Windows GPU 推理还需要安装 CUDA 12.x 与对应的 cuDNN。
+
+尚未实现 VAD、实时音频流、丛雨专属 Live2D 资源、情绪状态、Vision、Memory 和 Action Controller。
 
 ## 技术栈
 
@@ -27,7 +41,7 @@ ASR、TTS 接入、Vision、OCR、Memory、Action 属于后续规划模块，尚
 - Electron：桌面应用容器
 - HTML / CSS / JavaScript：界面实现
 - Live2D：虚拟角色展示与动作表现
-- 后续可迁移到 TypeScript
+- TypeScript：桌面 Renderer
 
 ### 后端
 
@@ -43,7 +57,7 @@ virtual-original-bot/
 ├─ apps/desktop/                 # Electron 桌面端（electron-vite）
 │  ├─ src/main/                  # 主进程：窗口与生命周期
 │  ├─ src/preload/               # contextBridge 安全桥
-│  └─ src/renderer/              # 界面与控制通道客户端（音频、Live2D 待实现）
+│  └─ src/renderer/              # 界面、控制通道客户端、音频和 Live2D 渲染
 │
 ├─ backend/                      # FastAPI 后端
 │  ├─ app/
@@ -116,6 +130,33 @@ docker compose up -d
 ```powershell
 Set-Location backend
 .\.venv\Scripts\python.exe -m pytest
+```
+
+### 端口和配置
+
+- FastAPI：`127.0.0.1:8090`
+- GPT-SoVITS API：`127.0.0.1:9880`
+- GPT-SoVITS WebUI：当前镜像存在 Gradio/Jinja2 兼容问题，默认不启动
+- Ollama：`127.0.0.1:11434`
+- ASR 模型路径、TTS 地址和音频目录可在 `backend/.env` 覆盖，模板见 `backend/.env.example`
+
+默认启动顺序：
+
+```powershell
+# 1. Ollama
+ollama serve
+
+# 2. GPT-SoVITS
+Set-Location docker\\gpt-sovits
+docker compose up -d
+
+# 3. FastAPI
+Set-Location ..\\..\\backend
+.\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8090
+
+# 4. Electron（另开终端）
+Set-Location ..\\apps\\desktop
+npm run dev
 ```
 
 ## 目标架构
@@ -281,10 +322,13 @@ shared/
 
 先接入一个 ASR、一个 LLM 和一个 TTS，不同时实现多个模型供应商。
 
+当前实现已包含文本到语音、音频上传到 ASR 的接口和桌面录音交互；ASR→对话→TTS 的接口链路已在本机通过生成音频完成检查。真实麦克风采集、Electron 播放和取消仍待本地验收。
+
 ### Phase 3：角色表现
 
-- Live2D 表情
-- 说话状态
+- Live2D 渲染、示例动作/表情控件已接入；当前使用 Mao PRO 示例模型完成加载与控件验证
+- TTS 期间的 `ParamA` 口型状态代码已接入，待 Electron 音频播放验收
+- 丛雨专属 Live2D 资源、正式表情映射和自然口型同步仍待完成
 - 情绪状态
 - 用户打断
 - 字幕显示

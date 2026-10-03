@@ -23,6 +23,10 @@ class Settings(BaseSettings):
 
     gpt_sovits_base_url: str = "http://127.0.0.1:9880/"
     gpt_sovits_timeout_seconds: float = 180.0
+    audio_directory: str = "runtime/audio"
+    asr_model_path: str = "../docker/gpt-sovits/models/asr_models/faster-whisper-large-v3"
+    asr_device: str = "cpu"
+    asr_compute_type: str = "int8"
 
 
 settings = Settings()

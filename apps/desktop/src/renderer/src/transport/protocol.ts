@@ -7,6 +7,10 @@ export const MESSAGE_TYPE = {
   SESSION_READY: 'session.ready',
   USER_TEXT: 'user.text',
   AGENT_TEXT: 'agent.text',
+  TTS_STARTED: 'tts.started',
+  TTS_READY: 'tts.ready',
+  TTS_CANCEL: 'tts.cancel',
+  TTS_CANCELLED: 'tts.cancelled',
   ERROR: 'error'
 } as const
 
@@ -23,6 +27,23 @@ export interface UserTextPayload {
 export interface AgentTextPayload {
   text: string
   reply_to: string
+}
+
+export interface TtsStartedPayload {
+  tts_id: string
+  reply_to: string
+}
+
+export interface TtsReadyPayload {
+  tts_id: string
+  reply_to: string
+  audio_url: string
+}
+
+export interface TtsCancelledPayload {
+  tts_id: string
+  reply_to: string
+  reason: string
 }
 
 export interface ErrorPayload {

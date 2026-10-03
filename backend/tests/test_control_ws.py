@@ -4,6 +4,7 @@
 """
 
 from collections.abc import Iterator
+import asyncio
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,8 @@ from fastapi.testclient import TestClient
 from app.agent.agent_core import AgentCore
 from app.main import app
 from app.models.llm import LlmUnavailable
+from app.models.tts.audio_store import AudioStore
+from app.models.tts.gpt_sovits import TtsRequest, TtsUnavailable
 
 USER_TEXT = {"type": "user.text", "id": "m1", "ts": 1, "payload": {"text": "你好"}}
 
@@ -28,15 +31,32 @@ class FakeChat:
         return self._reply_text
 
 
+class FakeTts:
+    def __init__(self, failure: str | None = None, block: bool = False) -> None:
+        self.failure = failure
+        self.block = block
+        self.requests: list[TtsRequest] = []
+
+    async def synthesize(self, request: TtsRequest) -> bytes:
+        self.requests.append(request)
+        if self.block:
+            await asyncio.sleep(60)
+        if self.failure is not None:
+            raise TtsUnavailable(self.failure)
+        return b"RIFF test audio"
+
+
 @pytest.fixture
 def chat() -> FakeChat:
     return FakeChat()
 
 
 @pytest.fixture
-def client(chat: FakeChat) -> Iterator[TestClient]:
+def client(chat: FakeChat, tmp_path) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         app.state.agent = AgentCore(chat)
+        app.state.tts = FakeTts()
+        app.state.audio_store = AudioStore(str(tmp_path))
         yield test_client
 
 
@@ -66,6 +86,64 @@ def test_user_text_is_answered_by_the_agent(client: TestClient, chat: FakeChat) 
     assert reply["payload"]["text"] == "我が輩 已收到。"
     assert chat.calls[0][0] == "你好"
     assert chat.calls[0][1] is not None  # 系统提示确实传下去了
+
+
+def test_text_reply_is_synthesized_and_audio_can_be_fetched(client: TestClient) -> None:
+    with client.websocket_connect("/ws/control") as ws:
+        ws.receive_json()
+        ws.send_json(USER_TEXT)
+        assert ws.receive_json()["type"] == "agent.text"
+        assert ws.receive_json()["type"] == "tts.started"
+        ready = ws.receive_json()
+
+    assert ready["type"] == "tts.ready"
+    audio_response = client.get(ready["payload"]["audio_url"])
+    assert audio_response.status_code == 200
+    assert audio_response.content == b"RIFF test audio"
+    tts = app.state.tts
+    assert tts.requests[0].refer_wav_path == "/workspace/data/references/murasame_ref.ogg"
+    assert tts.requests[0].prompt_text == "はっはっはっは"
+    assert tts.requests[0].prompt_language == "ja"
+
+
+def test_tts_cancel_reports_cancelled_reason(chat: FakeChat, tmp_path) -> None:
+    with TestClient(app) as client:
+        app.state.agent = AgentCore(chat)
+        app.state.tts = FakeTts(block=True)
+        app.state.audio_store = AudioStore(str(tmp_path))
+        with client.websocket_connect("/ws/control") as ws:
+            ws.receive_json()
+            ws.send_json(USER_TEXT)
+            ws.receive_json()
+            started = ws.receive_json()
+            ws.send_json(
+                {
+                    "type": "tts.cancel",
+                    "id": "cancel-1",
+                    "ts": 2,
+                    "payload": {"tts_id": started["payload"]["tts_id"]},
+                }
+            )
+            cancelled = ws.receive_json()
+
+    assert cancelled["type"] == "tts.cancelled"
+    assert cancelled["payload"]["reason"] == "cancelled"
+
+
+def test_tts_failure_returns_tts_unavailable_error(chat: FakeChat, tmp_path) -> None:
+    with TestClient(app) as client:
+        app.state.agent = AgentCore(chat)
+        app.state.tts = FakeTts(failure="服务不可用")
+        app.state.audio_store = AudioStore(str(tmp_path))
+        with client.websocket_connect("/ws/control") as ws:
+            ws.receive_json()
+            ws.send_json(USER_TEXT)
+            assert ws.receive_json()["type"] == "agent.text"
+            assert ws.receive_json()["type"] == "tts.started"
+            error = ws.receive_json()
+
+    assert error["type"] == "error"
+    assert error["payload"]["code"] == "tts_unavailable"
 
 
 def test_channel_survives_malformed_message(client: TestClient) -> None:

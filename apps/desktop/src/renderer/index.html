@@ -16,9 +16,30 @@
           <h1>virtual-original-bot</h1>
         </div>
         <span id="status" class="status status--connecting">连接中…</span>
+        <span class="live2d-label">Live2D Mao PRO（本地验证）</span>
       </header>
 
-      <main id="messages" class="messages" aria-live="polite"></main>
+      <main class="workspace">
+        <section class="character-panel" aria-label="Live2D 角色">
+          <canvas id="live2d-canvas"></canvas>
+          <span id="live2d-status">Live2D 加载中…</span>
+          <div class="character-panel__controls">
+            <button id="live2d-motion" type="button">播放示例动作</button>
+            <select id="live2d-expression" aria-label="Live2D 表情">
+              <option value="">选择示例表情</option>
+              <option value="exp_01">表情 01</option>
+              <option value="exp_02">表情 02</option>
+              <option value="exp_03">表情 03</option>
+              <option value="exp_04">表情 04</option>
+              <option value="exp_05">表情 05</option>
+              <option value="exp_06">表情 06</option>
+              <option value="exp_07">表情 07</option>
+              <option value="exp_08">表情 08</option>
+            </select>
+          </div>
+        </section>
+        <main id="messages" class="messages" aria-live="polite"></main>
+      </main>
 
       <form id="composer" class="composer">
         <input
@@ -29,6 +50,8 @@
           placeholder="输入文本，回车发送"
         />
         <button id="send" class="composer__send" type="submit">发送</button>
+        <button id="record" class="composer__record" type="button">开始录音</button>
+        <button id="stop-audio" class="composer__stop" type="button" disabled>停止语音</button>
       </form>
     </div>
 

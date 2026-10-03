@@ -11,7 +11,8 @@ function createWindow(): void {
     backgroundColor: '#0f1116',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      autoplayPolicy: 'no-user-gesture-required'
     }
   })
 

@@ -6,5 +6,13 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()]
+  },
+  renderer: {
+    root: 'src/renderer',
+    publicDir: '../../public',
+    base: './',
+    server: {
+      host: '127.0.0.1'
+    }
   }
 })

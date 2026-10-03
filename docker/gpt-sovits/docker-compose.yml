@@ -23,6 +23,7 @@ services:
       -g /workspace/models/custom/murasame_v2-e4.ckpt"
 
   gpt-sovits-webui:
+    profiles: ["webui"]
     image: xxxxrt666/gpt-sovits:latest-cu126-lite
     container_name: virtual-original-bot-gpt-sovits-webui
     restart: unless-stopped
