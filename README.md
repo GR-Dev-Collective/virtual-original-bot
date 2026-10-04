@@ -4,7 +4,7 @@
 
 项目目标是让虚拟角色能够通过文本、语音和视觉输入理解用户，并通过语音、Live2D 表情、情绪状态和可控动作进行反馈。
 
-项目处于桌面原型阶段。基础通信、Ollama 对话、GPT-SoVITS TTS、ASR 接口和 Live2D 本地验证界面已接入；第二阶段的 Electron 语音播放/取消验收仍在进行。
+项目处于桌面原型阶段。基础通信、Ollama 对话、GPT-SoVITS TTS、ASR 接口和 Live2D 本地验证界面已接入。Agent 提示要求简体中文；若回复含日文假名，后端会额外请求一次中文改写，改写仍含假名时返回错误并停止 TTS。TTS 输入固定标记为中文。
 
 ## 当前状态
 
@@ -14,12 +14,12 @@
 - 文本 Agent：经 Ollama 调用 `qwen3:8b`
 - GPT-SoVITS Docker 推理服务：`docker/gpt-sovits/`
 - GPT-SoVITS TTS Adapter、音频资源接口和 TTS 生命周期事件
-- Electron 文本聊天、TTS 播放、停止语音和单次录音按钮
+- Electron 文本聊天、TTS 播放、停止语音和单次录音按钮；录音按钮显示请求麦克风、录音和转写状态，并在录音结束或失败时释放媒体轨道
 - faster-whisper ASR HTTP 接口：`POST /asr`
 - Live2D Cubism 渲染、Mao PRO 示例动作/表情验证控件和 TTS 期间的口型状态代码
 - 共享控制协议：`shared/contracts/`
 
-当前已接入并通过接口检查的流程：
+当前已接入的流程：
 
 ```text
 文本输入 → Ollama → GPT-SoVITS → 音频资源接口
@@ -28,7 +28,9 @@
 
 ASR 需要本地存在 `ASR_MODEL_PATH` 指向的 faster-whisper 模型。Mao PRO 仅用于临时验证 Live2D 加载、动作和表情；Agent 设定与语音仍是丛雨。Mao 模型文件及 Cubism Core 放在被 Git 忽略的 `apps/desktop/public/live2d/mao/`，不随仓库分发。模型要求 moc3 版本 5，需在该目录提供兼容 Core；当前本机验证使用 Core 5.1.0。使用模型前需遵守压缩包中的 Live2D Free Material License Agreement 和 Terms of Use；Core 也受 Live2D SDK 许可条款约束。
 
-桌面端自动播放、停止/取消与说话时 `ParamA` 的实际联动尚未在 Electron 窗口中完成验收。浏览器页面检查中，浏览器容器拒绝了延迟到达的自动播放请求；Electron 窗口已设置 `no-user-gesture-required` 播放策略，仍需在应用窗口确认播放结果。
+Agent 的普通简体中文回复只请求 Ollama 一次；检测到平假名或片假名后最多再请求一次改写。只有通过假名检查的文本才会发送到界面和 TTS；改写后仍含假名时发送 `agent_language_unresolved` 错误，不合成语音。TTS 使用 `text_language="zh"`。现有语音参考素材 `murasame_ref.ogg` 是笑声，提示文本为 `はっはっはっは`、提示语言为 `ja`；本轮保留该配置，因此正式对白音质仍受素材限制。
+
+录音按钮在请求麦克风、录音和转写期间显示对应状态；请求麦克风和转写时会禁用按钮，录音时可以停止。录音成功、启动失败、录音错误、停止失败和 ASR 请求失败路径会清理录音器状态，并停止已取得的媒体轨道。桌面端类型检查和构建已通过；实际 Electron 按钮交互、真实麦克风录音/ASR 和播放听感仍待本机手动验收。
 
 当前 ASR 默认使用 CPU `int8`，不依赖主机上的 CUDA 动态库。需要 GPU 时，可通过 `ASR_DEVICE` 和 `ASR_COMPUTE_TYPE` 配置；Windows GPU 推理还需要安装 CUDA 12.x 与对应的 cuDNN。
 
@@ -322,7 +324,7 @@ shared/
 
 先接入一个 ASR、一个 LLM 和一个 TTS，不同时实现多个模型供应商。
 
-当前实现已包含文本到语音、音频上传到 ASR 的接口和桌面录音交互；ASR→对话→TTS 的接口链路已在本机通过生成音频完成检查。真实麦克风采集、Electron 播放和取消仍待本地验收。
+当前实现已包含文本到语音、音频上传到 ASR 的接口和桌面录音交互；ASR→对话→TTS 的接口链路已在本机通过生成音频完成检查。真实麦克风采集、Electron 播放、停止/取消及 `ParamA` 口型联动仍待本地验收。
 
 ### Phase 3：角色表现
 
