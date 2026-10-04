@@ -7,6 +7,7 @@ const STATUS_TEXT: Record<ConnectionStatus, string> = {
 }
 
 export type MessageRole = 'user' | 'agent' | 'system'
+export type RecorderUiState = 'idle' | 'requesting' | 'recording' | 'transcribing'
 
 export interface ChatView {
   onSend(handler: (text: string) => void): void
@@ -15,7 +16,7 @@ export interface ChatView {
   appendMessage(role: MessageRole, text: string): void
   setStatus(status: ConnectionStatus): void
   setAudioPlaying(playing: boolean): void
-  setRecording(recording: boolean): void
+  setRecordingState(state: RecorderUiState): void
 }
 
 function requireElement<T extends HTMLElement>(id: string): T {
@@ -85,10 +86,15 @@ export function createChatView(): ChatView {
     setAudioPlaying(playing) {
       stopAudio.disabled = !playing
     },
-    setRecording(recording) {
-      record.dataset.recording = String(recording)
-      record.textContent = recording ? '停止录音' : '开始录音'
-      record.disabled = false
+    setRecordingState(state) {
+      record.dataset.recording = String(state === 'recording')
+      record.textContent = {
+        idle: '开始录音',
+        requesting: '请求麦克风中…',
+        recording: '停止录音',
+        transcribing: '转写中…'
+      }[state]
+      record.disabled = state === 'requesting' || state === 'transcribing'
     }
   }
 }

@@ -99,17 +99,27 @@ chat.onStopAudio(() => {
   chat.setAudioPlaying(false)
 })
 
-chat.onRecord(async (recording) => {
-  try {
-    if (recording) {
-      await recorder.start()
-      chat.setRecording(true)
-      chat.appendMessage('system', '正在录音…')
-      return
-    }
+function showRecorderError(error: Error): void {
+  chat.setRecordingState('idle')
+  chat.appendMessage('system', `录音失败：${error.message}`)
+}
 
-    chat.setRecording(false)
-    chat.appendMessage('system', '正在转写…')
+chat.onRecord(async (recording) => {
+  if (recording) {
+    chat.setRecordingState('requesting')
+    try {
+      await recorder.start(showRecorderError)
+      chat.setRecordingState('recording')
+      chat.appendMessage('system', '正在录音…')
+    } catch (error) {
+      showRecorderError(error instanceof Error ? error : new Error(String(error)))
+    }
+    return
+  }
+
+  chat.setRecordingState('transcribing')
+  chat.appendMessage('system', '正在转写…')
+  try {
     const audio = await recorder.stop()
     const baseUrl = (controlUrl ?? DEFAULT_CONTROL_URL).replace(/^ws/, 'http').replace(/\/ws\/control$/, '')
     const form = new FormData()
@@ -120,8 +130,9 @@ chat.onRecord(async (recording) => {
     chat.appendMessage('user', result.text)
     client.sendUserText(result.text)
   } catch (error) {
-    chat.setRecording(false)
-    chat.appendMessage('system', `录音失败：${error instanceof Error ? error.message : String(error)}`)
+    showRecorderError(error instanceof Error ? error : new Error(String(error)))
+  } finally {
+    chat.setRecordingState('idle')
   }
 })
 
