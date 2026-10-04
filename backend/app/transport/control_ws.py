@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from app.agent.agent_core import AgentLanguageUnresolved
 from app.models.llm import ChatModel, LlmUnavailable
 from app.models.tts.gpt_sovits import TtsRequest, TtsUnavailable
 from app.state.session import SessionState
@@ -145,6 +146,8 @@ async def _respond(
             reason = exc.args[0] if exc.args and isinstance(exc.args[0], str) else "interrupted"
             await _send_cancelled(websocket, send_lock, session, reason)
         raise
+    except AgentLanguageUnresolved as exc:
+        await _send_error(websocket, send_lock, "agent_language_unresolved", str(exc), message_id)
     except LlmUnavailable as exc:
         await _send_error(websocket, send_lock, "llm_unavailable", str(exc), message_id)
     except TtsUnavailable as exc:

@@ -19,8 +19,14 @@ USER_TEXT = {"type": "user.text", "id": "m1", "ts": 1, "payload": {"text": "你�
 
 
 class FakeChat:
-    def __init__(self, reply_text: str = "我が輩 已收到。", failure: str | None = None) -> None:
+    def __init__(
+        self,
+        reply_text: str = "吾辈 已收到。",
+        failure: str | None = None,
+        replies: list[str] | None = None,
+    ) -> None:
         self._reply_text = reply_text
+        self._replies = list(replies or [])
         self._failure = failure
         self.calls: list[tuple[str, str | None]] = []
 
@@ -28,6 +34,8 @@ class FakeChat:
         self.calls.append((text, system))
         if self._failure is not None:
             raise LlmUnavailable(self._failure)
+        if self._replies:
+            return self._replies.pop(0)
         return self._reply_text
 
 
@@ -83,9 +91,73 @@ def test_user_text_is_answered_by_the_agent(client: TestClient, chat: FakeChat) 
 
     assert reply["type"] == "agent.text"
     assert reply["payload"]["reply_to"] == "m1"
-    assert reply["payload"]["text"] == "我が輩 已收到。"
+    assert reply["payload"]["text"] == "吾辈 已收到。"
     assert chat.calls[0][0] == "你好"
     assert chat.calls[0][1] is not None  # 系统提示确实传下去了
+
+
+def test_chinese_reply_is_not_rewritten(tmp_path) -> None:
+    chat = FakeChat(reply_text="吾辈，主人好。")
+    with TestClient(app) as test_client:
+        app.state.agent = AgentCore(chat)
+        app.state.tts = FakeTts()
+        app.state.audio_store = AudioStore(str(tmp_path))
+
+        with test_client.websocket_connect("/ws/control") as ws:
+            ws.receive_json()
+            ws.send_json(USER_TEXT)
+            reply = ws.receive_json()
+            assert reply["type"] == "agent.text"
+            assert reply["payload"]["text"] == "吾辈，主人好。"
+            assert ws.receive_json()["type"] == "tts.started"
+            assert ws.receive_json()["type"] == "tts.ready"
+
+    assert len(chat.calls) == 1
+    assert app.state.tts.requests[0].text == "吾辈，主人好。"
+    assert app.state.tts.requests[0].text_language == "zh"
+    assert app.state.tts.requests[0].refer_wav_path == "/workspace/data/references/murasame_ref.ogg"
+    assert app.state.tts.requests[0].prompt_text == "はっはっはっは"
+    assert app.state.tts.requests[0].prompt_language == "ja"
+
+
+def test_japanese_kana_reply_is_rewritten_before_agent_text_and_tts(tmp_path) -> None:
+    chat = FakeChat(replies=["ご主人、元気？", "吾辈很好，主人呢？"])
+    with TestClient(app) as test_client:
+        app.state.agent = AgentCore(chat)
+        app.state.tts = FakeTts()
+        app.state.audio_store = AudioStore(str(tmp_path))
+
+        with test_client.websocket_connect("/ws/control") as ws:
+            ws.receive_json()
+            ws.send_json(USER_TEXT)
+            reply = ws.receive_json()
+            assert reply["type"] == "agent.text"
+            assert reply["payload"]["text"] == "吾辈很好，主人呢？"
+            assert ws.receive_json()["type"] == "tts.started"
+            assert ws.receive_json()["type"] == "tts.ready"
+
+    assert len(chat.calls) == 2
+    assert app.state.tts.requests[0].text == "吾辈很好，主人呢？"
+    assert app.state.tts.requests[0].text_language == "zh"
+
+
+def test_unresolved_japanese_reply_sends_error_without_agent_text_or_tts(tmp_path) -> None:
+    chat = FakeChat(replies=["こんにちは", "まだ日本語です"])
+    with TestClient(app) as test_client:
+        app.state.agent = AgentCore(chat)
+        app.state.tts = FakeTts()
+        app.state.audio_store = AudioStore(str(tmp_path))
+
+        with test_client.websocket_connect("/ws/control") as ws:
+            ws.receive_json()
+            ws.send_json(USER_TEXT)
+            error = ws.receive_json()
+
+    assert error["type"] == "error"
+    assert error["payload"]["code"] == "agent_language_unresolved"
+    assert error["payload"]["reply_to"] == "m1"
+    assert len(chat.calls) == 2
+    assert app.state.tts.requests == []
 
 
 def test_text_reply_is_synthesized_and_audio_can_be_fetched(client: TestClient) -> None:
