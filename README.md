@@ -30,7 +30,7 @@ ASR 需要本地存在 `ASR_MODEL_PATH` 指向的 faster-whisper 模型。Mao PR
 
 Agent 的普通简体中文回复只请求 Ollama 一次；检测到平假名或片假名后最多再请求一次改写。只有通过假名检查的文本才会发送到界面和 TTS；改写后仍含假名时发送 `agent_language_unresolved` 错误，不合成语音。TTS 使用 `text_language="zh"`。现有语音参考素材 `murasame_ref.ogg` 是笑声，提示文本为 `はっはっはっは`、提示语言为 `ja`；本轮保留该配置，因此正式对白音质仍受素材限制。
 
-录音按钮在请求麦克风、录音和转写期间显示对应状态；请求麦克风和转写时会禁用按钮，录音时可以停止。录音成功、启动失败、录音错误、停止失败和 ASR 请求失败路径会清理录音器状态，并停止已取得的媒体轨道。桌面端类型检查和生产构建已通过；后端 24 项测试和 Ruff 检查已通过。本机已验证文本消息经过 Ollama 和 GPT-SoVITS 返回 WAV，Electron 的真实音频播放器触发 `playing` 和 `ended`；也已通过 Electron preload/IPC 将 WAV 送到默认 8090 后端并取得 ASR 文本。语音播放验收设为静音，ASR 使用的是生成音频且没有逐字稿基准，因此不能据此确认用户麦克风上的采集效果、识别准确率或实际听感；这些仍需在目标设备上验收。
+录音按钮在请求麦克风、录音和转写期间显示对应状态；请求麦克风和转写时会禁用按钮，录音时可以停止。录音成功、启动失败、录音错误、停止失败和 ASR 请求失败路径会清理录音器状态，并停止已取得的媒体轨道。桌面端类型检查和生产构建已通过；后端 24 项测试和 Ruff 检查已通过。本机已用 8.1 秒生成 WAV 作为虚拟 MediaStream 输入，验证 Electron 的 MediaRecorder、preload/IPC、默认 8090 ASR、对话、GPT-SoVITS 合成和真实音频播放器 `playing`/`ended` 事件。播放验收设为静音，ASR 没有逐字稿基准，因此不能据此确认用户麦克风硬件的采集效果、识别准确率或实际听感；这些仍需在目标设备上验收。
 
 当前 ASR 默认使用 CPU `int8`，不依赖主机上的 CUDA 动态库。需要 GPU 时，可通过 `ASR_DEVICE` 和 `ASR_COMPUTE_TYPE` 配置；Windows GPU 推理还需要安装 CUDA 12.x 与对应的 cuDNN。
 
