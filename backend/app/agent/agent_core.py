@@ -15,6 +15,29 @@ REWRITE_SYSTEM_PROMPT = f"""{SYSTEM_PROMPT}
 请把收到的回复草稿改写成简体中文，保留原意和丛雨的语气，并使用「吾辈」自称。
 只输出改写后的回复正文，不要解释。"""
 
+JAPANESE_KANA_NAME_PREFIXES = (
+    "SQUARE HIRAGANA ",
+    "HIRAGANA LETTER ",
+    "HIRAGANA DIGRAPH ",
+    "HIRAGANA ITERATION MARK",
+    "HIRAGANA VOICED ITERATION MARK",
+    "VERTICAL KANA ",
+    "CIRCLED KATAKANA ",
+    "KATAKANA LETTER ",
+    "KATAKANA DIGRAPH ",
+    "KATAKANA ITERATION MARK",
+    "KATAKANA VOICED ITERATION MARK",
+    "SQUARED KATAKANA ",
+    "HALFWIDTH KATAKANA LETTER ",
+    "HALFWIDTH KATAKANA VOICED SOUND MARK",
+    "HALFWIDTH KATAKANA SEMI-VOICED SOUND MARK",
+    "HALFWIDTH KATAKANA-HIRAGANA PROLONGED SOUND MARK",
+    "KATAKANA-HIRAGANA PROLONGED SOUND MARK",
+    "KATAKANA-HIRAGANA VOICED SOUND MARK",
+    "KATAKANA-HIRAGANA SEMI-VOICED SOUND MARK",
+    "COMBINING KATAKANA-HIRAGANA ",
+)
+
 
 class AgentLanguageUnresolved(Exception):
     """Agent 回复经一次改写后仍包含日文假名。"""
@@ -22,9 +45,7 @@ class AgentLanguageUnresolved(Exception):
 
 def _contains_japanese_kana(text: str) -> bool:
     return any(
-        unicodedata.name(character, "").startswith(
-            ("HIRAGANA LETTER ", "KATAKANA LETTER ", "HALFWIDTH KATAKANA LETTER ")
-        )
+        unicodedata.name(character, "").startswith(JAPANESE_KANA_NAME_PREFIXES)
         for character in text
     )
 

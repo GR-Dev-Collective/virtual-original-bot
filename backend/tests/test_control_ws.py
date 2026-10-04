@@ -120,6 +120,46 @@ def test_chinese_reply_is_not_rewritten(tmp_path) -> None:
     assert app.state.tts.requests[0].prompt_language == "ja"
 
 
+def test_kana_marks_trigger_rewrite(tmp_path) -> None:
+    chat = FakeChat(replies=["ーゝ", "吾辈已经改写。"])
+    with TestClient(app) as test_client:
+        app.state.agent = AgentCore(chat)
+        app.state.tts = FakeTts()
+        app.state.audio_store = AudioStore(str(tmp_path))
+
+        with test_client.websocket_connect("/ws/control") as ws:
+            ws.receive_json()
+            ws.send_json(USER_TEXT)
+            reply = ws.receive_json()
+            assert reply["type"] == "agent.text"
+            assert reply["payload"]["text"] == "吾辈已经改写。"
+            assert ws.receive_json()["type"] == "tts.started"
+            assert ws.receive_json()["type"] == "tts.ready"
+
+    assert len(chat.calls) == 2
+    assert app.state.tts.requests[0].text == "吾辈已经改写。"
+
+
+def test_kana_presentation_symbols_trigger_rewrite(tmp_path) -> None:
+    chat = FakeChat(replies=["\u3031\u32d0\U0001f201", "吾辈已经改写。"])
+    with TestClient(app) as test_client:
+        app.state.agent = AgentCore(chat)
+        app.state.tts = FakeTts()
+        app.state.audio_store = AudioStore(str(tmp_path))
+
+        with test_client.websocket_connect("/ws/control") as ws:
+            ws.receive_json()
+            ws.send_json(USER_TEXT)
+            reply = ws.receive_json()
+            assert reply["type"] == "agent.text"
+            assert reply["payload"]["text"] == "吾辈已经改写。"
+            assert ws.receive_json()["type"] == "tts.started"
+            assert ws.receive_json()["type"] == "tts.ready"
+
+    assert len(chat.calls) == 2
+    assert app.state.tts.requests[0].text == "吾辈已经改写。"
+
+
 def test_japanese_kana_reply_is_rewritten_before_agent_text_and_tts(tmp_path) -> None:
     chat = FakeChat(replies=["ご主人、元気？", "吾辈很好，主人呢？"])
     with TestClient(app) as test_client:
