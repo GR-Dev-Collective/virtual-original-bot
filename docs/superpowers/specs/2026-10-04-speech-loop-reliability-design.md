@@ -1,65 +1,75 @@
-# Speech Loop Reliability Design
+# 语音对话闭环可靠性设计
 
-Date: 2026-10-04
+日期：2026-10-04
 
-## Context and evidence
+## 背景与证据
 
-The desktop prototype connects an Electron renderer to a FastAPI backend. The backend sends agent replies to GPT-SoVITS and returns audio resources; the renderer captures one microphone recording and uploads it to `/asr` before sending the transcript through the same conversation channel.
+桌面端 Electron Renderer 连接 FastAPI 后端。后端把 Agent 回复交给 GPT-SoVITS 并返回音频资源；Renderer 采集一次麦克风录音，上传到 `/asr`，再把转写文本送入同一对话通道。
 
-The current implementation and local observations show:
+代码和本机检查确认：
 
-- Ollama uses `qwen3:8b`. The Murasame system prompt asks for Chinese replies, but a prior integration transcript contained a Japanese reply.
-- The WebSocket TTS path always sets `text_language="zh"`, while its reference prompt is Japanese: `murasame_ref.ogg`, with prompt text `はっはっはっは` and `prompt_language="ja"`.
-- The only reference audio found under the project’s mounted reference directory is `murasame_ref.ogg`. Project documentation identifies it as a laugh and says it is not ideal for formal inference. The documented training-audio source directory is absent on this machine, so this change cannot select a replacement dialogue sample.
-- `AudioRecorder.start()` waits for `getUserMedia()` before the UI changes the button to its recording state. While permission is pending, the UI still appears idle and allows another click. Startup and recorder-error paths do not consistently stop acquired media tracks or clear recorder state.
-- The recent backend log contained health checks but no `/asr` request. This locates the last observed recording failure before the upload boundary; it does not identify whether the user’s microphone permission, selected device, or another runtime condition caused it.
-- The local backend health endpoint, Ollama model listing, and GPT-SoVITS container were available during inspection. Existing output files are valid WAV containers, but no listening-based quality assessment was made.
+- Ollama 使用 `qwen3:8b`。丛雨系统提示要求中文回复，但此前一次联调中实际返回过日语句子。
+- 系统提示要求用中文回应，却让角色自称日文「我が輩」；控制通道又固定把合成文本标为 `text_language="zh"`。现有控制通道测试的假回复也是「我が輩 已收到。」这种中日混合文本，并断言 TTS 语言为中文。
+- 当前参考音频是 `murasame_ref.ogg`，提示文本为 `はっはっはっは`，提示语言为 `ja`。项目文档说明该文件是笑声，不适合正式推理。本机找不到文档所列的训练音频目录，因此不能从现有素材中选择正常对白替代。
+- `AudioRecorder.start()` 必须等 `getUserMedia()` 返回后，界面才把按钮切换为录音状态。权限请求等待期间界面仍像空闲状态，也允许重复点击。启动失败和录音错误路径未始终停止已取得的媒体轨道或清空录音状态。
+- 最近的后端日志有健康检查，但没有 `/asr` 请求。这表明最近一次录音流程没有到达上传边界；现有证据不能判定是麦克风权限、所选设备还是其他运行时原因。
+- 检查时后端健康接口、Ollama 模型列表和 GPT-SoVITS 容器均可用。已有输出文件是有效 WAV 容器，但没有进行实际听感评估。
 
-## Goal
+## 目标
 
-Make the existing single-recording speech conversation clearer and more reliable at the two observed boundaries: TTS language metadata and microphone recording lifecycle. Keep the established Murasame voice and character behavior.
+让 Agent 展示文本和合成语音都使用中文，并改进单次录音流程在麦克风请求、录制和转写期间的状态反馈及资源清理。丛雨仍是正式角色和语音模型。
 
-## Proposed design
+## 设计
 
-### TTS language selection
+### 中文回复与 TTS
 
-Keep the Murasame system prompt’s intended Chinese response behavior. Before synthesis, select the GPT-SoVITS `text_language` from the actual reply text: Japanese kana in the reply selects `ja`; otherwise select `zh`. Keep the current Japanese reference audio, its matching prompt text, and `prompt_language="ja"` unchanged. This keeps the actual target text language from being mislabeled while preserving the currently available voice assets.
+所有 Agent 回复和 TTS 输入都使用中文。系统提示改为中文自称「吾辈」，明确要求简体中文，避免当前日文自称令中文提示和模型输出混合日文假名。控制通道继续固定使用 `text_language="zh"`，不根据回复中的字符切换日语合成。
 
-The language rule is deliberately limited to Chinese and Japanese, the languages established by the current prompt and TTS configuration. It does not add a language-detection dependency or claim to handle arbitrary multilingual replies.
+如果 Ollama 回复仍含平假名或片假名，后端追加一次 Ollama 请求，将该回复改写成简体中文，保留原意和丛雨语气，并使用「吾辈」。只有改写结果不含日文假名时，才发送 `agent.text` 并开始中文 TTS。若改写请求失败，沿用现有 LLM 错误流程；若改写结果仍含日文假名，则发送 `error` 类型消息，`code` 使用 `agent_language_unresolved`，不发送原回复文本或 TTS。正常中文回复只调用一次 Ollama；额外延迟只发生在需要改写时。
 
-### Recording lifecycle
+当前日语笑声参考音频、匹配的提示文本及 `prompt_language="ja"` 保持不变。本轮不更换角色权重或参考音频；README 继续说明笑声参考音频对正式音质的限制。
 
-Give the recording control explicit idle, microphone-request, recording, and transcription states. Enter the microphone-request state before awaiting `getUserMedia()` and prevent repeat clicks while a start or upload operation is active. On success, switch to recording; on stop, switch to transcription; on failure, return to idle and display the concrete error.
+### 录音生命周期
 
-Make `AudioRecorder` release every acquired media track and clear its recorder/stream references when startup, recording, or stop fails, as well as after a normal stop. Preserve the existing single-recording flow and `/asr` request contract.
+录音控件展示明确的空闲、请求麦克风、录音和转写状态。在调用 `getUserMedia()` 前先显示请求状态；开始采集或上传时阻止重复点击。授权成功后切换到录音状态，停止录音后切换到转写状态；失败时恢复空闲状态并显示具体错误。
 
-### Documentation
+`AudioRecorder` 在启动、录音或停止失败时释放已取得的媒体轨道并清理录音器和流引用；正常停止时也完成清理。保留现有单次录音流程、`/asr` 接口及控制消息协议。
 
-Update the README’s current-state section to describe the language alignment behavior, recording states, and the remaining manual checks. Keep the laugh-reference limitation explicit until suitable source audio is available and selected.
+### 文档
 
-## Scope boundaries
+更新 README 当前状态，描述中文输出、录音界面状态和仍需手动验收的项目。保留笑声参考音频的局限说明。
 
-- Keep Ollama, the Murasame GPT and SoVITS weights, the Murasame persona, the current reference audio, ASR model selection, and the Mao Live2D verification asset unchanged.
-- Do not add VAD, streaming recognition, device selection, new language dependencies, or replacement voice data.
-- Do not claim that the real microphone or subjective speech quality is verified based on synthetic audio or service health alone.
+## 范围边界
 
-## Error handling and observable behavior
+- 保持 Ollama 模型、丛雨 GPT/SoVITS 权重、丛雨角色、现有参考音频、ASR 模型选择和 Mao Live2D 验证素材不变。
+- 不加入 VAD、实时流式识别、设备选择、新语言依赖或替换语音素材。
+- 不能仅凭合成音频接口或服务健康状态，宣称真实麦克风及主观听感已验收。
 
-- A pending microphone permission request is visible as a distinct in-progress state and cannot launch a second request through repeated clicks.
-- A rejected microphone request or recorder error returns the control to idle, releases acquired tracks, and displays the error surfaced by the browser/Electron API.
-- The ASR upload and conversation flow retain their existing endpoints and message protocol.
-- The language selected for TTS follows the reply text under the Chinese/Japanese rule above.
+## 错误处理与可见行为
 
-## Verification and acceptance
+- 等待麦克风权限时显示独立状态，重复点击不会发起并行录音请求。
+- 麦克风请求拒绝或录音器错误后，控件恢复空闲，已取得的轨道释放，并显示浏览器/Electron 提供的错误。
+- Agent 文本和 TTS 输入都按中文处理；TTS 请求固定使用 `text_language="zh"`。
+- Ollama 回复含日文假名时最多进行一次中文改写；改写仍未通过时不把日文回复交给用户或 TTS。
+- ASR 上传地址和控制消息协议保持不变。
 
-- Run the desktop type check and build after implementation.
-- Confirm the selected TTS language for Chinese replies and replies containing Japanese kana, and confirm the reference-audio request fields remain unchanged.
-- Inspect the recording state transitions and cleanup paths for success, permission rejection, and recorder failure.
-- Re-check the README against the implemented behavior.
-- Report real microphone capture and listening-based voice quality as pending unless those paths are exercised in the Electron window with the user’s actual microphone and audio output.
+## 验收
 
-## Risks
+- 实施后运行桌面端类型检查和构建。
+- 确认系统提示使用中文自称，控制通道请求固定标为 `zh`，参考音频请求字段保持不变。
+- 确认正常中文回复只请求一次 Ollama；回复含日文假名时会尝试一次改写，失败时不会发送日文 TTS。
+- 检查录音成功、权限拒绝、录音错误情况下的状态切换和轨道清理。
+- 对照实现更新 README。
+- 除非在 Electron 窗口用用户实际麦克风和音频输出运行，否则把真实录音和听感质量标记为待验收。
 
-- Script-based selection supports only the two languages documented here; text containing Japanese kana inside an otherwise Chinese reply will select Japanese.
-- The laugh reference remains a known quality limitation. Replacing it requires a suitable, available, and correctly transcribed Murasame dialogue recording.
-- Static checks cannot prove Windows microphone permission, selected input-device quality, speaker playback, or perceived voice quality.
+## 其他已发现的优化点
+
+`AudioStore` 将每次 TTS 输出写入 `backend/runtime/audio`，当前没有过期清理机制。它不会阻塞本轮语音闭环修复，但长时间使用会持续占用磁盘。本轮先不加入保留时长或容量上限，避免在没有保留策略要求时擅自删除用户音频。
+
+## 风险
+
+- 将日文自称改为中文「吾辈」会改变角色台词中的原始文字形式；这是满足中文输出目标的设计选择。
+- 含日文假名的回复会多一次 Ollama 调用；如果改写失败，本轮会返回错误而不是播放日文文本。
+- 自动改写触发条件是平假名或片假名；不含假名的纯汉字文本无法仅靠字符范围可靠区分中文和日文。
+- 笑声参考音频仍是已知音质限制。更换它需要存在且转写准确的丛雨正常对白素材。
+- 静态检查不能证明 Windows 麦克风权限、输入设备质量、扬声器播放或主观语音质量。
