@@ -18,6 +18,7 @@ __pycache__/
 
 # Agent tooling state
 .commandcode/
+.worktrees/
 
 # Live2D runtime assets (prepared locally from external model folders)
 apps/desktop/public/live2d/
