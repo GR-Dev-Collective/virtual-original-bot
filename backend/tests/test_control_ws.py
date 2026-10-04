@@ -3,8 +3,8 @@
 测试用假 ChatModel 替换真实 Ollama，不产生任何外部请求。
 """
 
-from collections.abc import Iterator
 import asyncio
+from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient

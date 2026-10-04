@@ -121,12 +121,11 @@ chat.onRecord(async (recording) => {
   chat.appendMessage('system', '正在转写…')
   try {
     const audio = await recorder.stop()
-    const baseUrl = (controlUrl ?? DEFAULT_CONTROL_URL).replace(/^ws/, 'http').replace(/\/ws\/control$/, '')
-    const form = new FormData()
-    form.append('audio', audio, 'recording.webm')
-    const response = await fetch(`${baseUrl}/asr`, { method: 'POST', body: form })
-    if (!response.ok) throw new Error(`ASR HTTP ${response.status}`)
-    const result = (await response.json()) as { text: string }
+    if (!window.vob) throw new Error('未连接到桌面语音服务')
+    const result = await window.vob.transcribeAudio(
+      new Uint8Array(await audio.arrayBuffer()),
+      audio.type || 'audio/webm'
+    )
     chat.appendMessage('user', result.text)
     client.sendUserText(result.text)
   } catch (error) {

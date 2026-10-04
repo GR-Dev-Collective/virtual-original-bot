@@ -7,7 +7,12 @@ class AsrUnavailable(RuntimeError):
 
 
 class FasterWhisperAsr:
-    def __init__(self, model_path: str, device: str = "cuda", compute_type: str = "float16") -> None:
+    def __init__(
+        self,
+        model_path: str,
+        device: str = "cuda",
+        compute_type: str = "float16",
+    ) -> None:
         self._model_path = Path(model_path)
         self._device = device
         self._compute_type = compute_type

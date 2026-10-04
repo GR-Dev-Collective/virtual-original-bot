@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.asr.faster_whisper import AsrUnavailable
 
 
 class FakeAsr:
@@ -15,6 +16,11 @@ class FakeAsr:
     async def transcribe(self, audio_path: str) -> str:
         self.calls.append(Path(audio_path).read_bytes())
         return self.result
+
+
+class MissingModelAsr:
+    async def transcribe(self, audio_path: str) -> str:
+        raise AsrUnavailable("ASR 模型不存在: missing-model")
 
 
 @pytest.fixture
@@ -44,3 +50,15 @@ def test_asr_rejects_empty_recording(client: TestClient) -> None:
     assert response.status_code == 400
     assert response.json() == {"detail": "录音为空"}
     assert app.state.asr.calls == []
+
+
+def test_asr_reports_missing_model_as_service_unavailable() -> None:
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        app.state.asr = MissingModelAsr()
+        response = test_client.post(
+            "/asr",
+            files={"audio": ("recording.webm", b"recorded audio", "audio/webm")},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "ASR 模型不存在: missing-model"}
