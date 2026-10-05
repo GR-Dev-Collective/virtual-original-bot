@@ -1,7 +1,7 @@
-"""Agent 决策与流程编排。
+"""Agent 对话与回复语言校验。
 
-当前只把用户文本交给 LLM 并返回回复文本。Memory、Action、情绪状态、
-TTS 和打断属于后续阶段，都从这里接出去。
+当前把用户文本交给 ChatModel，并确保回复不含日文假名。TTS 生命周期和打断由
+控制通道编排；Memory、Relationship、Emotion 和 Action 尚未接入。
 """
 
 import unicodedata

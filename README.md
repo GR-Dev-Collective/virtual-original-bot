@@ -34,7 +34,7 @@ Agent 的普通简体中文回复只请求 Ollama 一次；检测到平假名或
 
 当前 ASR 默认使用 CPU `int8`，不依赖主机上的 CUDA 动态库。需要 GPU 时，可通过 `ASR_DEVICE` 和 `ASR_COMPUTE_TYPE` 配置；Windows GPU 推理还需要安装 CUDA 12.x 与对应的 cuDNN。
 
-尚未实现 VAD、实时音频流、丛雨专属 Live2D 资源、情绪状态、Vision、Memory 和 Action Controller。
+尚未实现 VAD、实时音频流、Model Router、对话历史/Memory、Relationship、情绪状态、Vision、OCR、Video 抽帧、Action Controller 和外部设备控制。每轮对话目前只向 Ollama 发送系统提示与当前用户文本，不包含此前消息。
 
 ## 技术栈
 
@@ -324,12 +324,12 @@ shared/
 
 先接入一个 ASR、一个 LLM 和一个 TTS，不同时实现多个模型供应商。
 
-当前实现已包含文本到语音、音频上传到 ASR 的接口和桌面录音交互；ASR→对话→TTS 的接口链路已在本机通过生成音频完成检查。真实麦克风采集、Electron 播放、停止/取消及 `ParamA` 口型联动仍待本地验收。
+当前实现已包含文本到语音、音频上传到 ASR 的接口和桌面录音交互。已将 8.1 秒生成 WAV 经虚拟 MediaStream 输入 Electron 的 MediaRecorder，并跑通 preload/IPC、默认 8090 ASR、对话、TTS 与 Electron `playing`/`ended` 事件；真实麦克风硬件和听感质量仍待目标设备验收。Electron 停止/取消按钮的端到端交互、`ParamA` 参数的实际变化尚未单独观测。
 
 ### Phase 3：角色表现
 
 - Live2D 渲染、示例动作/表情控件已接入；当前使用 Mao PRO 示例模型完成加载与控件验证
-- TTS 期间的 `ParamA` 口型状态代码已接入，待 Electron 音频播放验收
+- TTS 播放开始/结束会切换 `ParamA` 的二值开合状态；播放事件已在 Electron 中验证，`ParamA` 参数变化尚未单独观测，自然口型同步尚未实现
 - 丛雨专属 Live2D 资源、正式表情映射和自然口型同步仍待完成
 - 情绪状态
 - 用户打断

@@ -1,6 +1,6 @@
 # 控制通道协议
 
-控制通道是一条 WebSocket，承载用户输入、Agent 回复、状态与错误。它是 Electron 与 FastAPI 之间唯一的前端入口。
+控制通道是一条 WebSocket，承载用户文本、Agent 回复、状态与错误。它是 Electron 与 FastAPI 之间的控制消息通道；音频媒体不走此 WebSocket：ASR 由 Electron 主进程通过 HTTP `POST /asr` 请求，TTS 音频由 Renderer 从 HTTP `/tts/{audio_id}` 获取。
 
 - 地址：`ws://<host>:<port>/ws/control`
 - 编码：UTF-8 JSON，每条消息一个文本帧
