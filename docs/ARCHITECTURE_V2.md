@@ -198,7 +198,7 @@ CharacterState：phase(idle/thinking/speaking/error)、emotion、tts_id、audio_
 | `turn.started` | `{turn_id, reply_to}` | 回合开始 |
 | `agent.text` | `{text, reply_to, message_id, audio_url?}` | 回复文本（先于 TTS） |
 | `tts.started` | `{tts_id, reply_to, voice_id}` | 合成开始 |
-| `tts.ready` | `{tts_id, reply_to, voice_id, audio_url}` | 音频可播 |
+| `tts.ready` | `{tts_id, reply_to, voice_id, audio_url, segment_index, segment_count, final}` | 分段音频可播；按 `segment_index` 递增，`final=true` 为最后一段 |
 | `tts.failed` | `{tts_id, reply_to, voice_id, code, message}` | 合成失败 |
 | `tts.cancelled` | `{tts_id, reply_to, reason}` | 取消 |
 | `tts.finished` | `{tts_id, reply_to?}` | 播放结束（客户端回报后广播） |
@@ -314,10 +314,10 @@ allow_headers=["*"]
 
 - 会话事件不做 WAL/事务恢复；进程崩溃可能丢最后一条正在写的行（JSONL 截断由加载器容错）。
 - 不做 LLM 摘要压缩，只做历史窗口裁剪（12 条 / 4000 字符）与回复截断（300 字）。
-- 不做音频流式播放；TTS 完整 WAV 就绪后播放。
+- 分句级 TTS：回复按句末标点切分（单段 ≤80 字），逐段合成、逐段 `tts.ready`，桌面端边播边等；不做网络级流式与实时音频流。
 - sidecar 单卡串行；超时不会中止推理线程，后续请求排队（见第 8 节）。
 - 8GB 显存下 IndexTTS 与 Ollama 同时占 GPU 会显著变慢，建议 `OLLAMA_NUM_GPU=0`。
-- `emotion.mode=text` 因缺 QwenEmotion 资源不可用；`character.state.emotion` 恒为 `null`。
+- `emotion.mode=text` 因缺 QwenEmotion 资源不可用；`character.state.emotion` 来自 Agent 结构化回复的情绪标签（可能为 `null`）。
 - Live2D 模型资源（`apps/desktop/public/live2d/mao/`）不随仓库分发；当前仅 Mao 示例，丛雨专属模型与正式口型未完成。
 - Electron 窗口内播放/停止/克隆交互未自动验证。
 - 仅支持本机 `127.0.0.1` / `localhost` 来源；无鉴权、无公网部署。

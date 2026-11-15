@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
@@ -414,7 +416,6 @@ def test_hydrate_survives_runtime_restart(harness) -> None:
         session_id = opened["payload"]["session_id"]
         events = complete_turn(ws)
         cursor = events["idle"]["seq"]
-
     # 模拟进程重启：新的 SessionStore 从同一目录恢复会话。
     build_runtime(
         sessions_dir=harness.sessions_dir,
@@ -437,3 +438,38 @@ def test_hydrate_survives_runtime_restart(harness) -> None:
     assert [message["role"] for message in state["payload"]["messages"]] == ["user", "assistant"]
     assert state["payload"]["turns"][0]["status"] == "completed"
     assert state["payload"]["character"]["phase"] == "idle"
+
+
+def test_tts_reply_is_split_into_segments(harness) -> None:
+    harness.chat.reply_text = json.dumps(
+        {"text": "第一句。第二句！", "emotion": "happy"}, ensure_ascii=False
+    )
+
+    with connect(harness.client) as ws:
+        handshake(ws)
+        send_user_text(ws, "你好", message_id="m1")
+        messages = receive_until(ws, "turn.completed")
+
+    ready = [item for item in messages if item["type"] == "tts.ready"]
+    segments = [
+        (
+            item["payload"]["segment_index"],
+            item["payload"]["segment_count"],
+            item["payload"]["final"],
+        )
+        for item in ready
+    ]
+    assert segments == [(0, 2, False), (1, 2, True)]
+    assert all(item["payload"]["reply_to"] == "m1" for item in ready)
+
+    speaking = [
+        item
+        for item in messages
+        if item["type"] == "character.state" and item["payload"]["phase"] == "speaking"
+    ]
+    assert speaking[0]["payload"]["emotion"] == "happy"
+
+    assert [request.text for request in harness.tts.requests] == ["第一句。", "第二句！"]
+    emotion = harness.tts.requests[0].emotion
+    assert emotion is not None and emotion.mode == "vector"
+    assert emotion.vector[0] == pytest.approx(0.8)

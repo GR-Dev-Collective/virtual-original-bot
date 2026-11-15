@@ -190,6 +190,9 @@ class TtsReadyPayload(Payload):
     reply_to: str = Field(min_length=1)
     voice_id: str = Field(min_length=1)
     audio_url: str = Field(min_length=1)
+    segment_index: int = Field(ge=0)
+    segment_count: int = Field(ge=1)
+    final: bool
 
 
 class TtsFailedPayload(Payload):

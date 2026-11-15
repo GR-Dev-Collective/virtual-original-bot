@@ -161,6 +161,9 @@ export interface TtsReadyPayload {
   reply_to: string
   voice_id: string
   audio_url: string
+  segment_index: number
+  segment_count: number
+  final: boolean
 }
 
 export interface TtsFailedPayload {

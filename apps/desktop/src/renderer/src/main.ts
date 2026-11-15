@@ -9,7 +9,8 @@ import type {
   AgentTextPayload,
   CharacterStatePayload,
   SessionOpenedPayload,
-  SessionStatePayload
+  SessionStatePayload,
+  TtsReadyPayload
 } from './transport/protocol'
 import { createChatView } from './ui/chat'
 import { createVoiceView } from './ui/voices'
@@ -184,11 +185,78 @@ function replayHistoryAudio(messageId: string, audioUrl: string): void {
   startPlayback('replay', `history:${messageId}`, audioUrl)
 }
 
+function enqueueTtsSegment(payload: TtsReadyPayload): void {
+  const messageId = messageIdByReplyTo.get(payload.reply_to) ?? null
+  if (payload.segment_index === 0) {
+    if (messageId) {
+      // agent.text 先于 tts.ready；用首段音频给历史消息补重播按钮。
+      chat.attachReplay(messageId, () => replayHistoryAudio(messageId, payload.audio_url))
+    }
+    activePlayback = 'tts'
+    activeTtsId = payload.tts_id
+  }
+
+  player.enqueue(
+    {
+      ttsId: payload.tts_id,
+      index: payload.segment_index,
+      url: resolveAudioUrl(payload.audio_url),
+      final: payload.final
+    },
+    {
+      onStarted: () => {
+        live2d.setSpeaking(true)
+        chat.setAudioPlaying(true)
+      },
+      onAllEnded: () => {
+        if (activeTtsId !== payload.tts_id) {
+          return
+        }
+        activePlayback = null
+        activeTtsId = null
+        chat.setAudioPlaying(false)
+        live2d.setSpeaking(false)
+        chat.setCharacterPhase('idle')
+        // 最后一段播完再回报，服务端据此把投影切回 idle。
+        client.sendTtsFinished(payload.tts_id)
+      },
+      onError: () => {
+        if (activeTtsId !== payload.tts_id) {
+          return
+        }
+        activePlayback = null
+        activeTtsId = null
+        chat.setAudioPlaying(false)
+        live2d.setSpeaking(false)
+        chat.setCharacterPhase('error')
+        chat.appendMessage('system', '语音播放失败，请检查后端音频地址是否可访问。')
+        client.sendTtsFinished(payload.tts_id)
+      }
+    }
+  )
+  chat.setAudioPlaying(true)
+}
+
 // ------------------------------------------------------------------ 角色状态
+
+const EMOTION_EXPRESSIONS: Record<string, string> = {
+  happy: 'exp_01',
+  angry: 'exp_02',
+  sad: 'exp_03',
+  afraid: 'exp_04',
+  disgusted: 'exp_05',
+  melancholic: 'exp_06',
+  surprised: 'exp_07',
+  calm: 'exp_08'
+}
 
 function applyCharacterState(payload: CharacterStatePayload): void {
   chat.setCharacterPhase(payload.phase)
   live2d.setSpeaking(payload.phase === 'speaking')
+  const expression = payload.emotion ? EMOTION_EXPRESSIONS[payload.emotion] : undefined
+  if (expression) {
+    void live2d.setExpression(expression).catch(() => undefined)
+  }
 }
 
 // ------------------------------------------------------------------ 聊天渲染
@@ -401,15 +469,12 @@ const client = new ControlClient(
       chat.setCharacterPhase('thinking')
     },
     onTtsReady: (payload) => {
-      const messageId = messageIdByReplyTo.get(payload.reply_to) ?? null
-      if (messageId) {
-        // agent.text 先于 tts.ready，audio_url 只在 tts.ready 里出现：补一个重播按钮。
-        chat.attachReplay(messageId, () => replayHistoryAudio(messageId, payload.audio_url))
-      }
-      activeTtsId = payload.tts_id
-      startPlayback('tts', payload.tts_id, payload.audio_url)
+      enqueueTtsSegment(payload)
     },
     onTtsFailed: (payload) => {
+      if (activePlayback === 'tts') {
+        stopPlayback()
+      }
       activeTtsId = null
       chat.setCharacterPhase('error')
       chat.setAudioPlaying(false)

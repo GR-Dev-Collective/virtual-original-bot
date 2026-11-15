@@ -1,4 +1,4 @@
-"""AgentCore：回复长度控制。"""
+"""AgentCore：结构化回复、情绪与长度控制。"""
 
 import asyncio
 
@@ -34,3 +34,28 @@ def test_long_reply_without_punctuation_gets_ellipsis() -> None:
 
     assert len(reply) <= MAX_REPLY_CHARS + 1
     assert reply.endswith("…")
+
+
+def test_structured_reply_parses_text_and_emotion() -> None:
+    raw = '```json\n{"text": "哼，知道了。", "emotion": "angry"}\n```'
+
+    reply = asyncio.run(AgentCore(_Chat(raw)).handle_turn("你好"))
+
+    assert reply.text == "哼，知道了。"
+    assert reply.emotion == "angry"
+
+
+def test_unknown_emotion_is_dropped() -> None:
+    raw = '{"text": "嗯。", "emotion": "excited"}'
+
+    reply = asyncio.run(AgentCore(_Chat(raw)).handle_turn("你好"))
+
+    assert reply.text == "嗯。"
+    assert reply.emotion is None
+
+
+def test_plain_text_falls_back_without_emotion() -> None:
+    reply = asyncio.run(AgentCore(_Chat("哼，知道了。")).handle_turn("你好"))
+
+    assert reply.text == "哼，知道了。"
+    assert reply.emotion is None

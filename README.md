@@ -20,7 +20,9 @@
 - **TTS**
   - 默认 provider：`index_tts`，指向 `http://127.0.0.1:9882` 的 IndexTTS-2.5 sidecar。
   - legacy provider：`TTS_PROVIDER=gpt_sovits`，指向 `http://127.0.0.1:9880/`。
+  - 分句合成：回复按句末标点切分（单段 ≤80 字），逐段发 `tts.ready`，桌面端边收边播。
   - 音色档案：`backend/config/voices.json` 内置 `murasame`（丛雨），参考音频 `assets/voices/murasame/murasame_ref.wav`；用户克隆档案存 `backend/runtime/voices/`。
+  - 情绪联动：Agent 返回 `{text, emotion}`；`character.state.emotion` 驱动 Live2D 示例表情，并转成 IndexTTS 8 维情感向量。
 - **桌面端**（`apps/desktop/`）
   - `vob/1` 客户端：握手、`localStorage` 保存 `session_id`/`cursor`、断线重连与 `after` 重放、`session.hydrate` 快照恢复、`voice.select` 音色下拉、克隆面板、CSP 修正、播放结束回报 `tts.finished`。
   - `npm run typecheck` 与 `npm run build` 通过。
@@ -37,6 +39,7 @@
 | 真实 GPU 合成 | 已跑通，22050Hz，单句约 2.23s / 7.5s 等 |
 | 后端 HTTP | `/voices`、`/tts`、克隆与删除已跑通 |
 | WebSocket 全链路 | LLM → TTS → `audio_url` → `hydrate` → 重连重放 9 条 → `voice.select` 已跑通 |
+| 分句 TTS + 情绪 | 已跑通：真实 IndexTTS 返回 2 段 `tts.ready`（`segment_index=0/1`），Agent 情绪 `calm` 写入 `character.state` 并转成 TTS 情感向量 |
 | Electron 截图验收 | 通过：Mao 模型加载、角色渲染、音色/克隆/输入控件齐全 |
 | ASR | 通过：faster-whisper-large-v3（CPU int8）转写真实 TTS 音频 |
 | sidecar mock | 启动/等待脚本已跑通 |
@@ -49,8 +52,8 @@
 ### 尚未实现
 
 - Memory / Relationship / Vision / OCR / Action Controller / World。
-- VAD、实时音频流、流式 TTS。
-- 情绪状态机：`character.state.emotion` 目前恒为 `null`，字段保留。
+- VAD、实时音频流、网络级流式 TTS（当前为分句级：逐句合成，首段就绪即播）。
+- 情绪状态机（复杂情绪建模）未实现；但 Agent 返回的情绪标签已接入 `character.state.emotion`、Live2D 示例表情与 IndexTTS 情感向量。
 - 丛雨专属 Live2D 资源与正式表情映射；仓库只带 Mao 示例的验证界面，模型资源需本地准备。
 - GPT-SoVITS 训练流程（legacy 推理仅保留）。
 
@@ -208,7 +211,7 @@ npm install
 npm run dev
 ```
 
-窗口内可以输入文本并回车，后端会依次推送 `agent.text`、`tts.ready` 和音频 URL。后端地址由 preload 注入，默认 `ws://127.0.0.1:8090/ws/control`，可用环境变量覆盖：
+窗口内可以输入文本并回车，后端会依次推送 `agent.text`、多个 `tts.ready`（按句分段，`segment_index` 递增）和音频 URL，桌面端边收边播。后端地址由 preload 注入，默认 `ws://127.0.0.1:8090/ws/control`，可用环境变量覆盖：
 
 ```powershell
 $env:VOB_CONTROL_URL = "ws://127.0.0.1:8090/ws/control"
@@ -285,7 +288,7 @@ ws://127.0.0.1:8090/ws/control?protocol=vob/1&session_id=<可选>&after=<可选 
 
 ```text
 turn.started → character.state(thinking) → agent.text
-             → tts.started → tts.ready → character.state(speaking)
+             → tts.started → tts.ready(segment 0..n) → character.state(speaking)
              → turn.completed
              → （客户端播放结束）tts.finished → character.state(idle)
 ```
@@ -496,8 +499,8 @@ OLLAMA_NUM_CTX=4096
 - Live2D 解压后的模型与 Cubism Core 不随仓库分发（`apps/desktop/public/live2d/` 被忽略）；用 `scripts/prepare_live2d_assets.ps1` 准备。缺少资源时角色画布不可用，但协议与 TTS 链路不受影响。
 - 仅 Mao 示例模型用于加载/动作/表情验证；丛雨专属 Live2D、正式表情映射与自然口型同步未完成。口型由播放状态驱动 `ParamA`，不做音频振幅分析。
 - Memory / Relationship / Vision / OCR / Action Controller / World 未实现。
-- 情绪状态机未实现：`character.state.emotion` 恒为 `null`。
-- 无 VAD、实时音频流、流式 TTS；必须等完整 WAV 就绪后播放。
+- 复杂情绪建模/长期情绪未实现；Agent 的情绪标签已接入 `character.state.emotion`（可能为 `null`）。
+- 无 VAD、实时音频流；TTS 为分句级流式（逐句 WAV 就绪即播），不是网络级流式。
 - IndexTTS sidecar 单卡串行；合成超时不会中止推理线程，后续请求会排队（见「排障」）。
 - 单会话同时只允许一个 active turn；一个连接同一时刻只绑定一个会话（`session.open` 可切换）。
 - 事件不做 WAL/事务恢复；进程崩溃可能丢最后一条正在写的行，JSONL 加载器会丢弃末尾半行并记录日志。

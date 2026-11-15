@@ -21,6 +21,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
+from app.agent.agent_core import AgentReply
 from app.models.llm import LlmUnavailable
 from app.models.tts.audio_store import AudioStore
 from app.models.tts.base import TtsProvider, TtsUnavailable
@@ -54,11 +55,11 @@ PublishFn = Callable[[str, EventType, BaseModel, str | None], EventRecord]
 
 
 class ReplyAgent(Protocol):
-    async def handle_user_text(
+    async def handle_turn(
         self,
         text: str,
         history: Sequence[Mapping[str, str]] | None = None,
-    ) -> str: ...
+    ) -> AgentReply: ...
 
 
 @dataclass(slots=True)
@@ -210,7 +211,9 @@ class ReplyPipeline:
                 {"role": message.role, "content": message.text}
                 for message in self._history(upto_seq=user_seq)
             ]
-            reply = await self._agent.handle_user_text(text, history=history)
+            agent_reply = await self._agent.handle_turn(text, history=history)
+            reply = agent_reply.text
+            emotion = agent_reply.emotion
 
             message_id = new_id()
             self._store.append_message(
@@ -257,8 +260,19 @@ class ReplyPipeline:
                 return
 
             voice_id = profile.id
+            segments = split_tts_segments(reply)
             tts_task = asyncio.create_task(
-                self._tts.synthesize(build_synthesis_request(reply, profile)),
+                self._synthesize_segments(
+                    tts_id=tts_id,
+                    reply_to=reply_to,
+                    turn_id=turn_id,
+                    voice_id=voice_id,
+                    profile=profile,
+                    message_id=message_id,
+                    reply=reply,
+                    segments=segments,
+                    emotion=emotion,
+                ),
                 name=f"tts-{tts_id}",
             )
             self._active_tts = _ActiveTts(
@@ -274,7 +288,7 @@ class ReplyPipeline:
             )
 
             try:
-                audio = await tts_task
+                await tts_task
             except asyncio.CancelledError:
                 reason = self._tts_cancel_reason
                 if reason is None:
@@ -299,37 +313,6 @@ class ReplyPipeline:
                 )
                 return
 
-            audio_url = f"/tts/{self._audio_store.save(audio)}"
-            # 消息以追加修订的方式补上 audio_url，hydrate 取同一 message_id 的最新记录。
-            self._store.append_message(
-                self._session_id,
-                role="assistant",
-                text=reply,
-                message_id=message_id,
-                turn_id=turn_id,
-                reply_to=reply_to,
-                audio_url=audio_url,
-            )
-            if self._active_tts is not None and self._active_tts.tts_id == tts_id:
-                self._active_tts.status = "ready"
-                self._active_tts.audio_url = audio_url
-                self._active_tts.task = None
-
-            self._emit(
-                EventType.TTS_READY,
-                TtsReadyPayload(
-                    tts_id=tts_id,
-                    reply_to=reply_to,
-                    voice_id=voice_id,
-                    audio_url=audio_url,
-                ),
-                reply_to=reply_to,
-            )
-            self._emit(
-                EventType.CHARACTER_STATE,
-                CharacterStateView(phase="speaking", tts_id=tts_id, audio_url=audio_url),
-                reply_to=reply_to,
-            )
             self._emit(
                 EventType.TURN_COMPLETED,
                 TurnCompletedPayload(turn_id=turn_id, reply_to=reply_to),
@@ -412,6 +395,72 @@ class ReplyPipeline:
                 self._active_turn = None
 
     # ------------------------------------------------------------------ 内部
+
+    async def _synthesize_segments(
+        self,
+        *,
+        tts_id: str,
+        reply_to: str,
+        turn_id: str,
+        voice_id: str,
+        profile: VoiceProfile,
+        message_id: str,
+        reply: str,
+        segments: list[str],
+        emotion: str | None,
+    ) -> None:
+        """逐句合成；每段就绪就发 tts.ready，客户端可以边播边等下一段。"""
+
+        count = len(segments)
+        for index, segment in enumerate(segments):
+            audio = await self._tts.synthesize(
+                build_synthesis_request(segment, profile, emotion=emotion)
+            )
+            audio_url = f"/tts/{self._audio_store.save(audio)}"
+            final = index == count - 1
+
+            if index == 0:
+                # 消息以追加修订的方式补上首段 audio_url（历史重播用它）。
+                self._store.append_message(
+                    self._session_id,
+                    role="assistant",
+                    text=reply,
+                    message_id=message_id,
+                    turn_id=turn_id,
+                    reply_to=reply_to,
+                    audio_url=audio_url,
+                )
+                if self._active_tts is not None and self._active_tts.tts_id == tts_id:
+                    self._active_tts.audio_url = audio_url
+
+            self._emit(
+                EventType.TTS_READY,
+                TtsReadyPayload(
+                    tts_id=tts_id,
+                    reply_to=reply_to,
+                    voice_id=voice_id,
+                    audio_url=audio_url,
+                    segment_index=index,
+                    segment_count=count,
+                    final=final,
+                ),
+                reply_to=reply_to,
+            )
+            if index == 0:
+                self._emit(
+                    EventType.CHARACTER_STATE,
+                    CharacterStateView(
+                        phase="speaking",
+                        emotion=emotion,
+                        tts_id=tts_id,
+                        audio_url=audio_url,
+                    ),
+                    reply_to=reply_to,
+                )
+
+            if final and self._active_tts is not None and self._active_tts.tts_id == tts_id:
+                self._active_tts.status = "ready"
+                self._active_tts.task = None
 
     def _history(self, *, upto_seq: int) -> list[MessageRecord]:
         return self._store.history(
@@ -498,4 +547,28 @@ def _cancelled_reason(exc: asyncio.CancelledError) -> str:
     return "interrupted"
 
 
-__all__ = ["PublishFn", "ReplyAgent", "ReplyPipeline"]
+TTS_SENTENCE_ENDS = "。！？!?；;…\n"
+
+
+def split_tts_segments(text: str, max_chars: int = 80) -> list[str]:
+    """按句末标点切分 TTS 文本；单句过长时硬切，保证首段尽快就绪。"""
+
+    text = text.strip()
+    if not text:
+        return ["……"]
+
+    segments: list[str] = []
+    current = ""
+    for char in text:
+        current += char
+        if char in TTS_SENTENCE_ENDS or len(current) >= max_chars:
+            piece = current.strip()
+            if piece:
+                segments.append(piece)
+            current = ""
+    if current.strip():
+        segments.append(current.strip())
+    return segments or [text[:max_chars]]
+
+
+__all__ = ["PublishFn", "ReplyAgent", "ReplyPipeline", "split_tts_segments"]

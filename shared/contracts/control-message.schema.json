@@ -292,13 +292,16 @@
     },
     "ttsReadyPayload": {
       "type": "object",
-      "required": ["tts_id", "reply_to", "voice_id", "audio_url"],
+      "required": ["tts_id", "reply_to", "voice_id", "audio_url", "segment_index", "segment_count", "final"],
       "additionalProperties": false,
       "properties": {
         "tts_id": { "type": "string", "minLength": 1 },
         "reply_to": { "type": "string", "minLength": 1 },
         "voice_id": { "type": "string", "minLength": 1 },
-        "audio_url": { "type": "string", "minLength": 1 }
+        "audio_url": { "type": "string", "minLength": 1 },
+        "segment_index": { "type": "integer", "minimum": 0 },
+        "segment_count": { "type": "integer", "minimum": 1 },
+        "final": { "type": "boolean" }
       }
     },
     "ttsFailedPayload": {

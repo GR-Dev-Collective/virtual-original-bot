@@ -20,18 +20,18 @@
 | `turn.started` | `{turn_id, reply_to}` | 是 | 新回合开始 |
 | `agent.text` | `{text, reply_to, message_id, audio_url?}` | 是 | 回复文本；`message_id` 是 assistant 消息 id |
 | `tts.started` | `{tts_id, reply_to, voice_id}` | 是 | 合成开始 |
-| `tts.ready` | `{tts_id, reply_to, voice_id, audio_url}` | 是 | WAV 已落盘，可播放 |
+| `tts.ready` | `{tts_id, reply_to, voice_id, audio_url, segment_index, segment_count, final}` | 是 | 分段 WAV 已落盘，可播放；按 `segment_index` 顺序播 |
 | `tts.failed` | `{tts_id, reply_to, voice_id, code, message}` | 是 | 合成失败；`code` 当前为 `tts_unavailable` |
 | `tts.cancelled` | `{tts_id, reply_to, reason}` | 是 | `reason` 见第 6 节 |
 | `tts.finished` | `{tts_id, reply_to?}` | 是 | 播放结束；由客户端命令 `tts.finished` 触发 |
 | `voice.selected` | `{voice_id, display_name}` | 是 | `voice.select` 成功后的广播 |
-| `character.state` | `{phase, emotion, tts_id, audio_url}` | 是 | 投影相位；`emotion` 恒为 `null` |
+| `character.state` | `{phase, emotion, tts_id, audio_url}` | 是 | 投影相位；`emotion` 来自 Agent 标签，可能为 `null` |
 | `turn.completed` | `{turn_id, reply_to}` | 是 | 回合完成（文本已产出；音频可能仍在播） |
 | `turn.cancelled` | `{turn_id, reply_to, reason}` | 是 | 回合被新输入或关闭取消 |
 | `turn.error` | `{turn_id, reply_to, code, message}` | 是 | 回合失败；`code` 为 `llm_unavailable` / `internal_error` |
 | `error` | `{code, message, reply_to?}` | 否 | 协议/业务错误；连接级，不带 `seq` |
 
-`character.state.phase` 取值：`idle` / `thinking` / `speaking` / `error`。`emotion` 是预留给后续情绪状态机的字段，当前所有事件里都是 `null`。
+`character.state.phase` 取值：`idle` / `thinking` / `speaking` / `error`。`emotion` 来自 Agent 的结构化回复（happy/angry/sad/afraid/disgusted/melancholic/surprised/calm），用于 Live2D 示例表情与 IndexTTS 情感向量；解析失败时为 `null`。
 
 ## 2. 已实现的命令（客户端 → 服务端）
 
@@ -83,9 +83,9 @@
 | Vision / OCR / Video | 未实现 | `backend/app/models/vision/`、`ocr/` 只有空包 |
 | Action Controller | 未实现 | `backend/app/actions/` 只有空包；没有 action 注册、参数校验或结果回传 |
 | World | 未实现 | 没有时间、环境、主动行为循环 |
-| 情绪状态机 | 未实现 | `character.state.emotion` 保留但恒为 `null` |
+| 情绪状态机 | 部分实现 | Agent 标签已接入 `character.state.emotion`、Live2D 示例表情与 TTS 情感向量；复杂情绪建模/长期情绪未做 |
 | VAD / 实时音频流 / 语音 WebSocket | 未实现 | 只有 `POST /asr` 单次上传；没有音频流通道 |
-| 流式 TTS / 边合成边播放 | 未实现 | 必须等完整 WAV 的 `tts.ready` 后播放 |
+| 分句级流式 TTS | 已实现 | 回复按句切分，逐段 `tts.ready`，桌面端边播边等；网络级音频流未做 |
 | 多 active turn / 多会话并行 | 未实现 | 每会话最多一个 active turn；一个连接绑定一个会话 |
 | Action schema / 外部设备控制 | 未实现 | `shared/contracts/` 目前只有控制消息 schema |
 | 工具调用 / 审批 / MCP / 子代理 / 上下文压缩 | 未实现（也非目标） | 这是角色应用，不是通用 coding agent |
@@ -189,7 +189,7 @@
 ## 10. 明确不宣称的内容
 
 - 不宣称 Electron 窗口内播放、停止、自动播放、克隆表单交互已验收。
-- 不宣称 Memory / Vision / Action / World / VAD / 实时音频 / 流式 TTS / 情绪状态机已实现。
+- 不宣称 Memory / Vision / Action / World / VAD / 实时音频 / 网络级流式 TTS 已实现；分句级流式与情绪标签已实现。
 - 不宣称 GPT-SoVITS 训练流程已迁移；仅保留 legacy 推理。
 - 不宣称 Live2D 丛雨模型或正式口型同步已完成；仓库不附带模型资源。
 - 不宣称多用户、多会话并发、鉴权或公网部署已支持；当前是 `127.0.0.1` 本地单用户原型。

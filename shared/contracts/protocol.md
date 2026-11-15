@@ -106,7 +106,7 @@
 | `turn.started` | `{turn_id, reply_to}` | 回合开始 |
 | `agent.text` | `{text, reply_to, message_id, audio_url?}` | 回复文本（先于 TTS）；`message_id` 是 assistant 消息 id |
 | `tts.started` | `{tts_id, reply_to, voice_id}` | 合成开始 |
-| `tts.ready` | `{tts_id, reply_to, voice_id, audio_url}` | 音频可播 |
+| `tts.ready` | `{tts_id, reply_to, voice_id, audio_url, segment_index, segment_count, final}` | 音频分段可播；同一 `tts_id` 按 `segment_index` 递增，`final=true` 表示最后一段 |
 | `tts.failed` | `{tts_id, reply_to, voice_id, code, message}` | 合成失败；`code` 当前为 `tts_unavailable` |
 | `tts.cancelled` | `{tts_id, reply_to, reason}` | TTS 已取消 |
 | `tts.finished` | `{tts_id, reply_to?}` | 播放结束（客户端回报后广播） |
@@ -117,7 +117,7 @@
 | `turn.error` | `{turn_id, reply_to, code, message}` | 回合失败 |
 | `error` | `{code, message, reply_to?}` | 协议/业务错误；不带 `seq` |
 
-`character.state.phase` 取值：`idle` / `thinking` / `speaking` / `error`。`emotion` 为后续情绪状态机预留，当前恒为 `null`。
+`character.state.phase` 取值：`idle` / `thinking` / `speaking` / `error`。`emotion` 来自 Agent 的结构化回复（happy/angry/sad/afraid/disgusted/melancholic/surprised/calm），解析失败时为 `null`。
 
 ### 错误码
 
@@ -144,9 +144,9 @@
 - `turns`：由事件账本推导，元素为
   `{turn_id, reply_to, status: "active"|"completed"|"cancelled"|"error", started_seq?, ended_seq?, tts_id?, audio_url?}`。
   - `started_seq` / `ended_seq` 是事件账本的 `seq`。
-  - `audio_url` 来自该 turn 最近一次 `tts.ready`；`tts.failed` / `turn.error` 会把它清空。
+  - `audio_url` 来自该 turn 最近一次 `tts.ready`（分句时为最后一段）；`tts.failed` / `turn.error` 会把它清空。
 - `voice`：`{voice_id, display_name}`；hydrate 时 `display_name` 当前为 `null`（会话只存 `voice_id`，展示名由 `voice.selected` 或 `/voices` 提供）。
-- `character`：`{phase, emotion, tts_id, audio_url}`；`emotion` 当前恒为 `null`。
+- `character`：`{phase, emotion, tts_id, audio_url}`；`emotion` 来自 Agent 标签，可能为 `null`。
 - `active_turn_id`：当前 active turn（无则 `null`）。
 - `cursor`：快照对应的账本位置，可直接作为重连 `after`。
 
@@ -176,7 +176,8 @@ backend/runtime/
 
 ```text
 user.text ─▶ turn.started ─▶ character.state(thinking) ─▶ agent.text
-          ─▶ tts.started ─▶ tts.ready ─▶ character.state(speaking) ─▶ turn.completed
+          ─▶ tts.started ─▶ tts.ready(segment 0) ─▶ character.state(speaking)
+                          ─▶ tts.ready(segment 1..n, final) ─▶ turn.completed
                                                        └─▶（等待 tts.finished）character.state(idle)
 ```
 
@@ -189,8 +190,9 @@ user.text ─▶ turn.started ─▶ character.state(thinking) ─▶ agent.text
 - TTS 失败：`tts.failed` + `character.state(error)` + `turn.completed`；文本消息仍在 transcript 中。
 - LLM 失败：`character.state(error)` + `turn.error{code:"llm_unavailable"}`。
 - 未预期异常：`character.state(error)` + `turn.error{code:"internal_error"}`。
-- 音频保存在本地后，`audio_url` 同时写入 assistant 消息（追加修订）与 `tts.ready` 事件；用 `GET /tts/{audio_id}` 取回。
-- 回合完成不等待播放结束：`turn.completed` 在 `tts.ready` 之后发出，`tts.finished` 由客户端播放结束时回报。
+- 音频保存在本地后，首段 `audio_url` 写入 assistant 消息（追加修订），每段都发 `tts.ready`；用 `GET /tts/{audio_id}` 取回。
+- 分句 TTS：回复按 `。！？!?；;…` 或 80 字上限切分；同一 `tts_id` 的 `tts.ready` 按 `segment_index` 顺序到达，客户端可边播边等。`character.state.emotion` 来自 Agent 的结构化回复，可能为 `null`。
+- 回合完成不等待播放结束：`turn.completed` 在最后一段 `tts.ready` 之后发出，`tts.finished` 由客户端在最后一段播放结束时回报。
 
 ## 8. 契约同步
 
