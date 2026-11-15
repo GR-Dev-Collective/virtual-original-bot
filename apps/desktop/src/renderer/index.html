@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss: http://127.0.0.1:* http://localhost:*; media-src 'self' http://127.0.0.1:* http://localhost:*"
     />
     <title>virtual-original-bot</title>
   </head>
@@ -16,6 +16,15 @@
           <h1>virtual-original-bot</h1>
         </div>
         <span id="status" class="status status--connecting">连接中…</span>
+        <span id="character-status" class="status status--character-idle">空闲</span>
+        <div class="voice-bar">
+          <label class="voice-bar__label" for="voice-select">音色</label>
+          <select id="voice-select" aria-label="音色选择">
+            <option value="">加载中…</option>
+          </select>
+          <button id="voice-clone-open" class="voice-bar__clone" type="button">克隆音色</button>
+          <span id="voice-hint" class="voice-hint" role="status" aria-live="polite" hidden></span>
+        </div>
         <span class="live2d-label">Live2D Mao PRO（本地验证）</span>
       </header>
 
@@ -53,6 +62,39 @@
         <button id="record" class="composer__record" type="button">开始录音</button>
         <button id="stop-audio" class="composer__stop" type="button" disabled>停止语音</button>
       </form>
+
+      <section id="clone-panel" class="clone-panel" aria-label="音色克隆" hidden>
+        <form id="clone-form" class="clone-panel__card">
+          <h2 class="clone-panel__title">克隆音色</h2>
+
+          <label class="clone-panel__field">
+            <span>名称</span>
+            <input id="clone-name" type="text" maxlength="64" autocomplete="off" placeholder="例如：我的声音" />
+          </label>
+
+          <label class="clone-panel__field">
+            <span>语言</span>
+            <select id="clone-language">
+              <option value="ZH">中文（ZH）</option>
+              <option value="JA">日本語（JA）</option>
+              <option value="EN">English（EN）</option>
+            </select>
+          </label>
+
+          <label class="clone-panel__field">
+            <span>参考音频</span>
+            <input id="clone-audio" type="file" accept="audio/*" />
+          </label>
+
+          <p class="clone-panel__tip">建议 1–60 秒的清晰人声，wav / mp3 / m4a 等格式。</p>
+          <p id="clone-error" class="clone-panel__error" role="alert" hidden></p>
+
+          <div class="clone-panel__actions">
+            <button id="clone-submit" class="clone-panel__submit" type="submit">提交克隆</button>
+            <button id="clone-cancel" class="clone-panel__cancel" type="button">取消</button>
+          </div>
+        </form>
+      </section>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
