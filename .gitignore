@@ -33,6 +33,9 @@ backend/runtime/
 *.pth
 *.ckpt
 
+# UI 截图验收产物
+ui-capture.png
+
 # 环境变量
 .env
 .env.local

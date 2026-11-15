@@ -37,12 +37,14 @@
 | 真实 GPU 合成 | 已跑通，22050Hz，单句约 2.23s / 7.5s 等 |
 | 后端 HTTP | `/voices`、`/tts`、克隆与删除已跑通 |
 | WebSocket 全链路 | LLM → TTS → `audio_url` → `hydrate` → 重连重放 9 条 → `voice.select` 已跑通 |
+| Electron 截图验收 | 通过：Mao 模型加载、角色渲染、音色/克隆/输入控件齐全 |
+| ASR | 通过：faster-whisper-large-v3（CPU int8）转写真实 TTS 音频 |
 | sidecar mock | 启动/等待脚本已跑通 |
 
 ### 尚未自动验证
 
-- **Electron 窗口内的实际音频播放与克隆面板交互**没有自动化验收。当前只能确认协议链路、构建产物和浏览器/脚本层面的行为；窗口内的播放、自动播放策略、停止语音和克隆表单仍需人工验收。
-- 真实麦克风采集 → `/asr` → 对话 → TTS 的完整人工操作链路未自动化。
+- **Electron 窗口内的实际音频播放、自动播放策略、停止语音与克隆面板交互**没有自动化验收。协议链路、构建产物、Live2D 渲染截图已验证；播放与表单交互仍需人工过一遍。
+- 真实麦克风采集 → `/asr` → 对话 → TTS 的完整人工操作链路未自动化（`/asr` 接口本身已用真实模型验证）。
 
 ### 尚未实现
 
@@ -213,7 +215,17 @@ $env:VOB_CONTROL_URL = "ws://127.0.0.1:8090/ws/control"
 npm run dev
 ```
 
-Live2D 模型资源不在仓库中（`apps/desktop/public/live2d/` 被 `.gitignore` 忽略）。当前控制器加载 `apps/desktop/public/live2d/mao/mao_pro.model3.json` 与同目录的 `live2dcubismcore.min.js`；缺少时画布区会提示加载失败，但控制通道、聊天和 TTS 仍按协议独立工作。需要按模型许可自行准备资源；`scripts/prepare_live2d_assets.ps1` 是旧版丛雨资源复制脚本（目标目录 `live2d/murasame`），与当前 Mao 示例路径不同，不能直接让 Mao 加载成功。
+Live2D 资源准备（可选；窗口内要看到角色才需要）：
+
+- 仓库只带模型压缩包 `apps/desktop/src/renderer/public/live2d/mao_zh-Hans.zip`，解压后的资源写入被 `.gitignore` 忽略的 `apps/desktop/public/live2d/mao/`。
+- 从 Live2D Cubism SDK for Web 取得 `live2dcubismcore.min.js`（受 Live2D 许可约束，不入库），设置 `VOB_LIVE2D_CORE` 后运行准备脚本：
+
+```powershell
+$env:VOB_LIVE2D_CORE = "C:\path\to\live2dcubismcore.min.js"
+powershell -ExecutionPolicy Bypass -File scripts\prepare_live2d_assets.ps1
+```
+
+脚本会解压模型并复制 Core；之后 `npm run build` / `npm run dev`，控制器从 `live2d/mao/mao_pro.model3.json` 加载。缺少 Core 或模型时画布会提示加载失败，但控制通道、聊天和 TTS 不受影响。
 
 ### 5. 端口一览
 
@@ -399,6 +411,15 @@ backend\.venv\Scripts\python.exe -m pytest services\indextts_service\tests -q
 Set-Location apps\desktop
 npm run typecheck
 npm run build
+
+# 端到端 smoke（需先启动 sidecar + 后端 + Ollama）
+# sidecar 可用 scripts\start_indextts.ps1 -Mock 做无 GPU 联调
+backend\.venv\Scripts\python.exe scripts\e2e_ws_smoke.py
+
+# Electron 渲染截图（可选，需先准备 Live2D 资源）
+# 1) 静态服务 out/renderer；2) 用本地 Electron 截图
+python -m http.server 4173 --bind 127.0.0.1 --directory out\renderer
+node_modules\electron\dist\electron.exe ..\scripts\capture_ui.cjs
 ```
 
 说明：
@@ -472,7 +493,7 @@ OLLAMA_NUM_CTX=4096
 ## 已知限制
 
 - **Electron 窗口内的播放、停止、克隆面板交互未自动验证**；本文不宣称这些 UI 行为已经验收。
-- Live2D 模型资源不随仓库分发；`apps/desktop/public/live2d/mao/` 需要本地准备。缺少时角色画布不可用，但协议与 TTS 链路不受影响。
+- Live2D 解压后的模型与 Cubism Core 不随仓库分发（`apps/desktop/public/live2d/` 被忽略）；用 `scripts/prepare_live2d_assets.ps1` 准备。缺少资源时角色画布不可用，但协议与 TTS 链路不受影响。
 - 仅 Mao 示例模型用于加载/动作/表情验证；丛雨专属 Live2D、正式表情映射与自然口型同步未完成。口型由播放状态驱动 `ParamA`，不做音频振幅分析。
 - Memory / Relationship / Vision / OCR / Action Controller / World 未实现。
 - 情绪状态机未实现：`character.state.emotion` 恒为 `null`。
