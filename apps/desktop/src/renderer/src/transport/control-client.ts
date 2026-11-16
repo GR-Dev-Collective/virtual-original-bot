@@ -142,6 +142,14 @@ export class ControlClient {
     this.send(buildMessage(MESSAGE_TYPE.SESSION_OPEN, payload))
   }
 
+  /** 丢弃当前会话身份并重连；服务端会新建会话。 */
+  startNewSession(): void {
+    this.sessionId = null
+    this.cursor = 0
+    this.lastSeq = 0
+    this.socket?.close()
+  }
+
   dispose(): void {
     this.disposed = true
     if (this.reconnectTimer !== null) {

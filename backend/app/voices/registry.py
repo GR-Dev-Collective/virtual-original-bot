@@ -178,6 +178,20 @@ class VoiceRegistry:
         self._persist()
         self._remove_directory(profile.id)
 
+    def rename(self, voice_id: str, display_name: str) -> VoiceProfile:
+        name = display_name.strip()
+        if not name:
+            raise ValueError("音色名称不能为空")
+        profile = self._user.get(voice_id)
+        if profile is None:
+            if voice_id in self._builtin:
+                raise BuiltinVoiceProtected(voice_id)
+            raise VoiceNotFound(voice_id)
+        updated = profile.model_copy(update={"display_name": name})
+        self._user[voice_id] = updated
+        self._persist()
+        return updated
+
     def _persist(self) -> None:
         self._user_directory.mkdir(parents=True, exist_ok=True)
         data = {"voices": [profile.to_json() for profile in self._user.values()]}

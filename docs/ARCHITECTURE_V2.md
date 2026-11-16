@@ -78,7 +78,8 @@ backend/
 │  │  ├─ control_ws.py           # /ws/control：握手、命令分发、重放、扇出
 │  │  ├─ messages.py             # vob/1 pydantic 镜像
 │  │  ├─ tts_http.py             # POST /tts
-│  │  ├─ voices_http.py          # GET/POST/DELETE /voices
+│  │  ├─ voices_http.py          # GET/POST/PATCH/DELETE /voices、/voices/{id}/sample
+│  │  ├─ sessions_http.py        # GET /sessions 会话列表
 │  │  └─ voice_http.py           # POST /asr
 │  ├─ runtime/
 │  │  ├─ runtime.py              # CharacterRuntime：会话注册、订阅、音色、回合入口
@@ -114,7 +115,8 @@ src/preload/index.ts             # contextBridge 注入 controlUrl（VOB_CONTROL
 src/renderer/src/
 ├─ transport/protocol.ts         # vob/1 TypeScript 镜像
 ├─ transport/control-client.ts   # 重连、after 重放、hydrate、seq 去重、命令队列
-├─ api/voices.ts                 # GET/POST/DELETE /voices
+├─ api/voices.ts                 # GET/POST/PATCH/DELETE /voices、sample
+├─ api/sessions.ts               # GET /sessions
 ├─ ui/chat.ts, ui/voices.ts      # 聊天与音色/克隆 UI
 ├─ audio/player.ts, recorder.ts  # 播放与录音
 └─ live2d/controller.ts          # Cubism 4 渲染、ParamA 口型
@@ -248,7 +250,8 @@ backend/runtime/
 
 - `VoiceProfile`：`id`、`display_name`、`language`（ZH/EN/JA/ES/AR）、`reference_audio`、`description`、`emotion`（mode/vector/text/audio/alpha）、`duration_factor`、`builtin`、`gpt_sovits`。
 - 内置档案：`murasame`（`assets/voices/murasame/murasame_ref.wav`，ZH，零样本克隆）。
-- 克隆：`POST /voices`（multipart：name/audio/language）→ PyAV 解码并规范化为 16-bit mono WAV（WAV 保留源采样率；非 WAV 统一 44.1kHz）→ 校验 1–60s → 存 `runtime/voices/<id>/reference.wav` → 写 `profiles.json` → 201。`DELETE /voices/{id}` 只删用户档案；内置档案 409。
+- 克隆：`POST /voices`（multipart：name/audio/language）→ PyAV 解码并规范化为 16-bit mono WAV（WAV 保留源采样率；非 WAV 统一 44.1kHz）→ 校验 1–60s → 存 `runtime/voices/<id>/reference.wav` → 写 `profiles.json` → 201。`PATCH /voices/{id}` 重命名、`GET /voices/{id}/sample` 试听、`DELETE /voices/{id}` 只删用户档案；内置档案 409。
+- 会话列表：`GET /sessions` 扫描 `runtime/sessions/*`，标题取首条用户消息，按最近消息倒序；桌面端用它做会话切换/新建。
 - TTS Port 请求：`text`、`reference_audio`（绝对路径）、`language`、`emotion`（可选）、`duration_factor`、`provider_options`。
   - `IndexTtsProvider` 转 sidecar 契约（`POST /synthesize`），只发送非空字段；`provider_options` 不发给 IndexTTS。
   - `GptSovitsProvider` 用档案 `gpt_sovits` 段的容器内路径/prompt；缺省退回请求里的绝对路径。
@@ -307,7 +310,7 @@ allow_headers=["*"]
 - 旧桌面客户端（只认 `session.ready`/`tts.started`/`tts.ready`）会因 `protocol` 与握手变化而不兼容；本次同步升级桌面端，不保留旧协议兼容层。
 - 旧 `POST /tts` 保留（新增可选 `voice_id`），便于脚本/调试。
 - GPT-SoVITS 推理目录与 docker compose 保留，降级为 legacy；训练流程不迁移。
-- 首版不做多会话并行打开（一个连接一个会话；`session.open` 可切换）。
+- 首版不做多会话并行打开（一个连接一个会话；`session.open` 可切换，桌面端提供会话列表/新建）。
 - `app/runtime/tts_port.py` 仅保留旧 `TtsPort` 名称别名，避免既有导入失效。
 
 ## 14. 已知限制

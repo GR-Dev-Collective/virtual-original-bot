@@ -11,6 +11,7 @@ export type HintTone = 'info' | 'error'
 export interface VoiceView {
   onSelect(handler: (voiceId: string) => void): void
   onAudition(handler: (voiceId: string) => void): void
+  onRename(handler: (voiceId: string) => void): void
   onDelete(handler: (voiceId: string) => void): void
   onCloneSubmit(handler: (input: CloneInput) => void): void
   onCloneCancel(handler: () => void): void
@@ -37,6 +38,7 @@ export function createVoiceView(): VoiceView {
   const select = requireElement<HTMLSelectElement>('voice-select')
   const cloneOpen = requireElement<HTMLButtonElement>('voice-clone-open')
   const audition = requireElement<HTMLButtonElement>('voice-audition')
+  const rename = requireElement<HTMLButtonElement>('voice-rename')
   const remove = requireElement<HTMLButtonElement>('voice-delete')
   const hint = requireElement<HTMLElement>('voice-hint')
   const panel = requireElement<HTMLElement>('clone-panel')
@@ -50,6 +52,7 @@ export function createVoiceView(): VoiceView {
 
   let selectHandler: (voiceId: string) => void = () => {}
   let auditionHandler: (voiceId: string) => void = () => {}
+  let renameHandler: (voiceId: string) => void = () => {}
   let deleteHandler: (voiceId: string) => void = () => {}
   let submitHandler: (input: CloneInput) => void = () => {}
   let cancelHandler: () => void = () => {}
@@ -111,6 +114,7 @@ export function createVoiceView(): VoiceView {
     const selectedId = select.value
     const profile = currentProfiles.find((voice) => voice.id === selectedId) ?? null
     audition.disabled = !profile
+    rename.disabled = !profile || profile.builtin
     remove.disabled = !profile || profile.builtin
   }
 
@@ -162,6 +166,12 @@ export function createVoiceView(): VoiceView {
     }
   })
 
+  rename.addEventListener('click', () => {
+    if (select.value) {
+      renameHandler(select.value)
+    }
+  })
+
   cloneOpen.addEventListener('click', () => {
     openClonePanel()
   })
@@ -199,6 +209,9 @@ export function createVoiceView(): VoiceView {
     },
     onAudition(handler) {
       auditionHandler = handler
+    },
+    onRename(handler) {
+      renameHandler = handler
     },
     onDelete(handler) {
       deleteHandler = handler

@@ -86,7 +86,7 @@
 | 情绪状态机 | 部分实现 | Agent 标签已接入 `character.state.emotion`、Live2D 示例表情与 TTS 情感向量；复杂情绪建模/长期情绪未做 |
 | VAD / 实时音频流 / 语音 WebSocket | 未实现 | 只有 `POST /asr` 单次上传；没有音频流通道 |
 | 分句级流式 TTS | 已实现 | 回复按句切分，逐段 `tts.ready`，桌面端边播边等；网络级音频流未做 |
-| 多 active turn / 多会话并行 | 未实现 | 每会话最多一个 active turn；一个连接绑定一个会话 |
+| 多 active turn / 多会话并行 | 未实现 | 每会话最多一个 active turn；一个连接绑定一个会话，可 `session.open` 切换，桌面端支持会话列表/新建 |
 | Action schema / 外部设备控制 | 未实现 | `shared/contracts/` 目前只有控制消息 schema |
 | 工具调用 / 审批 / MCP / 子代理 / 上下文压缩 | 未实现（也非目标） | 这是角色应用，不是通用 coding agent |
 

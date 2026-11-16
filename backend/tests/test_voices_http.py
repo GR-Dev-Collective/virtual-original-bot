@@ -166,3 +166,29 @@ def test_voice_sample_unknown_is_not_found(client: TestClient) -> None:
     response = client.get("/voices/does-not-exist/sample")
 
     assert response.status_code == 404
+
+
+def test_patch_renames_user_voice(client: TestClient, tmp_path) -> None:
+    profile = upload_wav(client, name="旧名字", seconds=1.0).json()
+
+    response = client.patch(f"/voices/{profile['id']}", json={"display_name": "新名字"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["display_name"] == "新名字"
+    listed = client.get("/voices").json()["voices"]
+    renamed = next(item for item in listed if item["id"] == profile["id"])
+    assert renamed["display_name"] == "新名字"
+    profiles = json.loads((tmp_path / "voices" / "profiles.json").read_text(encoding="utf-8"))
+    assert profiles["voices"][0]["display_name"] == "新名字"
+
+
+def test_patch_builtin_voice_is_conflict(client: TestClient) -> None:
+    response = client.patch("/voices/murasame", json={"display_name": "改名"})
+
+    assert response.status_code == 409
+
+
+def test_patch_unknown_voice_is_not_found(client: TestClient) -> None:
+    response = client.patch("/voices/does-not-exist", json={"display_name": "改名"})
+
+    assert response.status_code == 404

@@ -31,6 +31,10 @@ class VoiceListResponse(BaseModel):
     voices: list[VoiceView]
 
 
+class VoicePatch(BaseModel):
+    display_name: str = Field(min_length=1)
+
+
 @router.get("", response_model=VoiceListResponse)
 async def list_voices(request: Request) -> VoiceListResponse:
     registry = _registry(request)
@@ -81,6 +85,20 @@ async def create_voice(
         )
     except ValueError as exc:
         _cleanup(destination)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _view(profile)
+
+
+@router.patch("/{voice_id}", response_model=VoiceView)
+async def rename_voice(voice_id: str, payload: VoicePatch, request: Request) -> VoiceView:
+    registry = _registry(request)
+    try:
+        profile = registry.rename(voice_id, payload.display_name)
+    except BuiltinVoiceProtected as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except VoiceNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _view(profile)
 

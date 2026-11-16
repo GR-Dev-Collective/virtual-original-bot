@@ -16,7 +16,7 @@
   - `SessionStore`：`backend/runtime/sessions/<session_id>/` 下持久化 `meta.json`、`messages.jsonl`、`events.jsonl`，事件带单调 `seq`，支持 `after` 重放与 `hydrate` 快照。
   - `ReplyPipeline`：单会话单 active turn、新输入打断旧 turn、最近历史窗口、回复截断到 300 字。
   - `character.state` 完全由事件账本投影（`idle` / `thinking` / `speaking` / `error`）。
-  - `GET /health`、`GET/POST/DELETE /voices`、`POST /tts`、`GET /tts/{audio_id}`、`POST /asr`。
+  - `GET /health`、`GET/PATCH/POST/DELETE /voices`、`GET /voices/{id}/sample`、`GET /sessions`、`POST /tts`、`GET /tts/{audio_id}`、`POST /asr`。
 - **TTS**
   - 默认 provider：`index_tts`，指向 `http://127.0.0.1:9882` 的 IndexTTS-2.5 sidecar。
   - legacy provider：`TTS_PROVIDER=gpt_sovits`，指向 `http://127.0.0.1:9880/`。
@@ -24,7 +24,7 @@
   - 音色档案：`backend/config/voices.json` 内置 `murasame`（丛雨），参考音频 `assets/voices/murasame/murasame_ref.wav`；用户克隆档案存 `backend/runtime/voices/`。
   - 情绪联动：Agent 返回 `{text, emotion}`；`character.state.emotion` 驱动 Live2D 示例表情，并转成 IndexTTS 8 维情感向量。
 - **桌面端**（`apps/desktop/`）
-  - `vob/1` 客户端：握手、`localStorage` 保存 `session_id`/`cursor`、断线重连与 `after` 重放、`session.hydrate` 快照恢复、`voice.select` 音色下拉、克隆面板、音色试听/删除、CSP 修正、播放结束回报 `tts.finished`。
+  - `vob/1` 客户端：握手、`localStorage` 保存 `session_id`/`cursor`、断线重连与 `after` 重放、`session.hydrate` 快照恢复、会话列表/切换/新建、`voice.select` 音色下拉、克隆面板、音色试听/重命名/删除、CSP 修正、播放结束回报 `tts.finished`。
   - Live2D 口型：用 Web Audio 分析播放振幅驱动 `ParamA`；无分析器时退回轻量合成动画。
   - `npm run typecheck` 与 `npm run build` 通过。
 
@@ -41,6 +41,7 @@
 | 后端 HTTP | `/voices`、`/tts`、克隆与删除已跑通 |
 | WebSocket 全链路 | LLM → TTS → `audio_url` → `hydrate` → 重连重放 9 条 → `voice.select` 已跑通 |
 | 分句 TTS + 情绪 | 已跑通：真实 IndexTTS 返回 2 段 `tts.ready`（`segment_index=0/1`），Agent 情绪 `calm` 写入 `character.state` 并转成 TTS 情感向量 |
+| 会话与音色管理 | `GET /sessions` 列表、`session.open` 切换/新建、音色试听/重命名/删除均有测试覆盖 |
 | Electron 截图验收 | 通过：Mao 模型加载、角色渲染、音色/克隆/输入控件齐全 |
 | ASR | 通过：faster-whisper-large-v3（CPU int8）转写真实 TTS 音频 |
 | sidecar mock | 启动/等待脚本已跑通 |
@@ -340,8 +341,10 @@ backend/runtime/
 ```text
 GET    /voices                 列出音色与 default_voice_id
 POST   /voices                 上传参考音频克隆音色（multipart: name, audio, language）
+PATCH  /voices/{voice_id}      重命名用户克隆音色 {display_name}（内置音色 409）
 GET    /voices/{voice_id}/sample 试听参考音频（audio/wav）
 DELETE /voices/{voice_id}      删除用户克隆音色（内置音色 409）
+GET    /sessions               已持久化会话列表（标题/消息数/最近活动）
 POST   /tts                    单次合成 {text, voice_id?}，返回 audio/wav
 GET    /tts/{audio_id}         取回已保存的 WAV
 ```
@@ -504,7 +507,7 @@ OLLAMA_NUM_CTX=4096
 - 复杂情绪建模/长期情绪未实现；Agent 的情绪标签已接入 `character.state.emotion`（可能为 `null`）。
 - 无 VAD、实时音频流；TTS 为分句级流式（逐句 WAV 就绪即播），不是网络级流式。
 - IndexTTS sidecar 单卡串行；合成超时不会中止推理线程，后续请求会排队（见「排障」）。
-- 单会话同时只允许一个 active turn；一个连接同一时刻只绑定一个会话（`session.open` 可切换）。
+- 单会话同时只允许一个 active turn；一个连接同一时刻只绑定一个会话，但可通过 `session.open` 切换，桌面端提供会话列表与“新会话”。
 - 事件不做 WAL/事务恢复；进程崩溃可能丢最后一条正在写的行，JSONL 加载器会丢弃末尾半行并记录日志。
 - 会话事件上限 2000，超出后 replay 无法回到更早事件；transcript 仍从 messages 重建。
 - 不做 LLM 摘要压缩，只做历史窗口裁剪（默认最近 12 条 / 4000 字符）。

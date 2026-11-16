@@ -21,6 +21,7 @@ from app.models.tts.factory import build_tts_provider
 from app.runtime.runtime import CharacterRuntime
 from app.session.store import SessionStore
 from app.transport.control_ws import router as control_router
+from app.transport.sessions_http import router as sessions_router
 from app.transport.tts_http import router as tts_router
 from app.transport.voice_http import router as voice_router
 from app.transport.voices_http import router as voices_router
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
     app.include_router(tts_router)
     app.include_router(voice_router)
     app.include_router(voices_router)
+    app.include_router(sessions_router)
     return app
 
 

@@ -90,6 +90,10 @@ AudioStore → backend/runtime/audio/<audio_id>.wav
 | `400` | 名称为空、语种不支持、文件为空、无法解码、时长不在 1–60 秒 |
 | `422` | 缺少 multipart 字段（FastAPI 校验） |
 
+### `PATCH /voices/{voice_id}`
+
+重命名用户克隆音色：`{"display_name": "新名字"}` → `200` + 音色对象。内置音色 `409`，不存在 `404`，空名称 `400`。
+
 ### `GET /voices/{voice_id}/sample`
 
 返回该档案的参考音频（`audio/wav`），用于桌面端“试听”按钮；未知音色 `404`。只返回注册表里已存在的档案路径，不接受任意文件路径。

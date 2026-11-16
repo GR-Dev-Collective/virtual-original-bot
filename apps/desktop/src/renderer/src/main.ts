@@ -2,7 +2,8 @@ import './ui/styles.css'
 
 import { AudioPlayer } from './audio/player'
 import { AudioRecorder } from './audio/recorder'
-import { cloneVoice, deleteVoice, httpBaseFromControlUrl, listVoices, type VoiceProfile } from './api/voices'
+import { cloneVoice, deleteVoice, httpBaseFromControlUrl, listVoices, renameVoice, type VoiceProfile } from './api/voices'
+import { listSessions } from './api/sessions'
 import { Live2DController } from './live2d/controller'
 import { ControlClient } from './transport/control-client'
 import type {
@@ -62,6 +63,9 @@ const live2dCanvas = document.getElementById('live2d-canvas') as HTMLCanvasEleme
 const live2dStatus = document.getElementById('live2d-status') as HTMLElement
 const live2dExpression = document.getElementById('live2d-expression') as HTMLSelectElement
 const live2dMotion = document.getElementById('live2d-motion') as HTMLButtonElement
+const sessionSelect = document.getElementById('session-select') as HTMLSelectElement
+const sessionNew = document.getElementById('session-new') as HTMLButtonElement
+let ignoreSessionChange = false
 
 void live2d.mount(live2dCanvas).then(() => {
   live2dStatus.textContent = 'Mao PRO 示例模型已加载'
@@ -216,6 +220,26 @@ function removeVoice(voiceId: string): void {
     })
     .catch((error: unknown) => {
       voiceView.setHint(`删除失败：${describeError(error)}`, 'error')
+    })
+}
+
+function renameVoiceAction(voiceId: string): void {
+  const voice = findVoice(voiceId)
+  if (!voice || voice.builtin) {
+    return
+  }
+  const nextName = window.prompt('新的音色名称', voice.display_name)?.trim()
+  if (!nextName || nextName === voice.display_name) {
+    return
+  }
+  voiceView.setHint('正在重命名…')
+  void renameVoice(httpBase, voiceId, nextName)
+    .then(async () => {
+      voiceView.setHint(`已重命名为：${nextName}`)
+      await refreshVoices({ preferredId: voiceId })
+    })
+    .catch((error: unknown) => {
+      voiceView.setHint(`重命名失败：${describeError(error)}`, 'error')
     })
 }
 
@@ -424,6 +448,38 @@ async function refreshVoices(options: { preferredId?: string | null; selectDefau
   }
 }
 
+async function refreshSessionList(selectedId: string | null): Promise<void> {
+  try {
+    const sessions = await listSessions(httpBase)
+    ignoreSessionChange = true
+    sessionSelect.replaceChildren()
+    if (sessions.length === 0) {
+      const option = document.createElement('option')
+      option.value = ''
+      option.textContent = '（暂无会话）'
+      sessionSelect.append(option)
+      sessionSelect.disabled = true
+      ignoreSessionChange = false
+      return
+    }
+
+    sessionSelect.disabled = false
+    for (const session of sessions) {
+      const option = document.createElement('option')
+      option.value = session.session_id
+      option.textContent = `${session.title}（${session.message_count}）`
+      sessionSelect.append(option)
+    }
+    const target = selectedId && sessions.some((session) => session.session_id === selectedId)
+      ? selectedId
+      : sessions[0]?.session_id ?? ''
+    sessionSelect.value = target
+    ignoreSessionChange = false
+  } catch {
+    ignoreSessionChange = false
+  }
+}
+
 // ------------------------------------------------------------------ 控制通道
 
 const client = new ControlClient(
@@ -455,6 +511,7 @@ const client = new ControlClient(
       }
       // 首次连接按后端 default_voice_id 选定音色；重连只刷新列表。
       void refreshVoices({ selectDefault: !voicesLoaded })
+      void refreshSessionList(payload.session_id)
     },
     onCursor: (cursor) => {
       writeStorage(CURSOR_STORAGE_KEY, String(cursor))
@@ -537,6 +594,7 @@ const client = new ControlClient(
         // 本地会话已被后端清理：丢掉，重连时新建会话。
         writeStorage(SESSION_STORAGE_KEY, null)
         writeStorage(CURSOR_STORAGE_KEY, null)
+        void refreshSessionList(null)
         chat.appendMessage('system', `会话已失效，将新建会话：${payload.message}`)
         return
       }
@@ -589,6 +647,44 @@ voiceView.onAudition((voiceId) => {
 
 voiceView.onDelete((voiceId) => {
   removeVoice(voiceId)
+})
+
+voiceView.onRename((voiceId) => {
+  renameVoiceAction(voiceId)
+})
+
+function interruptPlayback(): void {
+  const previous = activePlayback === 'tts' ? player.stop() : null
+  if (previous) {
+    client.sendTtsCancel(previous)
+  }
+  activePlayback = null
+  activeTtsId = null
+  chat.setAudioPlaying(false)
+  live2d.setSpeaking(false)
+}
+
+sessionSelect.addEventListener('change', () => {
+  if (ignoreSessionChange) {
+    return
+  }
+  const sessionId = sessionSelect.value
+  if (!sessionId || sessionId === client.currentSessionId) {
+    return
+  }
+  interruptPlayback()
+  writeStorage(SESSION_STORAGE_KEY, null)
+  writeStorage(CURSOR_STORAGE_KEY, null)
+  client.sendSessionOpen(sessionId, 0)
+  chat.appendMessage('system', '正在切换会话…')
+})
+
+sessionNew.addEventListener('click', () => {
+  interruptPlayback()
+  writeStorage(SESSION_STORAGE_KEY, null)
+  writeStorage(CURSOR_STORAGE_KEY, null)
+  client.startNewSession()
+  chat.appendMessage('system', '正在新建会话…')
 })
 
 voiceView.onCloneCancel(() => {

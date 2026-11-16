@@ -186,3 +186,23 @@ export async function deleteVoice(baseUrl: string, voiceId: string): Promise<voi
     throw new VoiceApiError(`HTTP ${response.status}：${await readDetail(response)}`, response.status)
   }
 }
+
+export async function renameVoice(
+  baseUrl: string,
+  voiceId: string,
+  displayName: string
+): Promise<VoiceProfile | null> {
+  const response = await fetch(`${baseUrl}/voices/${encodeURIComponent(voiceId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name: displayName })
+  })
+  if (!response.ok) {
+    throw new VoiceApiError(`HTTP ${response.status}：${await readDetail(response)}`, response.status)
+  }
+  try {
+    return normalizeVoice(await response.json())
+  } catch {
+    return null
+  }
+}

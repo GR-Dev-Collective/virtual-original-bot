@@ -171,6 +171,43 @@ body {
   opacity: 0.45;
 }
 
+.session-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.session-bar__label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#session-select {
+  min-width: 150px;
+  max-width: 220px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.session-bar__new {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.session-bar__new:hover {
+  filter: brightness(1.08);
+}
+
 .voice-hint {
   color: var(--muted);
   font-size: 12px;

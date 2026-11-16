@@ -96,6 +96,46 @@ class SessionStore:
             raise SessionNotFound(session_id)
         return meta
 
+    def list_sessions(self) -> list[dict[str, Any]]:
+        """列出已持久化会话（按最近活动倒序），标题取首条用户消息。"""
+
+        sessions: list[dict[str, Any]] = []
+        with self._lock:
+            for directory in self._root.iterdir():
+                if not directory.is_dir():
+                    continue
+                session_id = directory.name
+                try:
+                    validate_session_id(session_id)
+                except InvalidSessionId:
+                    continue
+                meta = self._read_meta(session_id)
+                if meta is None:
+                    continue
+                messages = self._read_messages(directory)
+                first_user = next(
+                    (
+                        message.text
+                        for message in messages
+                        if message.role == "user" and message.text.strip()
+                    ),
+                    "",
+                )
+                title = " ".join(first_user.split())[:24] or "新会话"
+                updated_at = messages[-1].ts if messages else meta.created_at
+                sessions.append(
+                    {
+                        "session_id": meta.session_id,
+                        "title": title,
+                        "created_at": meta.created_at,
+                        "updated_at": updated_at,
+                        "message_count": len(messages),
+                        "voice_id": meta.voice_id,
+                    }
+                )
+        sessions.sort(key=lambda item: item["updated_at"], reverse=True)
+        return sessions
+
     def set_voice_id(self, session_id: str, voice_id: str) -> SessionMeta:
         """更新会话音色；t8 的音色选择会调用它。"""
 
