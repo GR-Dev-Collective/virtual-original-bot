@@ -7,6 +7,7 @@ import json
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
+from app.memory.store import MemoryStore
 from tests.helpers import (
     FAKE_AUDIO,
     FakeTts,
@@ -473,3 +474,17 @@ def test_tts_reply_is_split_into_segments(harness) -> None:
     emotion = harness.tts.requests[0].emotion
     assert emotion is not None and emotion.mode == "vector"
     assert emotion.vector[0] == pytest.approx(0.8)
+
+
+def test_memory_is_injected_and_relationship_grows(harness_factory, tmp_path) -> None:
+    memory = MemoryStore(tmp_path / "memory")
+    harness = harness_factory(memory=memory)
+
+    with connect(harness.client) as ws:
+        handshake(ws)
+        complete_turn(ws, "记住 我喜欢红茶")
+
+    assert "我喜欢红茶" in harness.chat.calls[0]["system"]
+    snapshot = memory.snapshot()
+    assert snapshot["relationship"]["affinity"] == 1
+    assert snapshot["notes"][0]["text"] == "我喜欢红茶"

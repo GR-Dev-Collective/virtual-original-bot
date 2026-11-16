@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 
 from app.agent.agent_core import AgentCore
 from app.config import settings
+from app.memory.store import MemoryStore
 from app.models.asr.faster_whisper import FasterWhisperAsr
 from app.models.llm.ollama import OllamaChat
 from app.models.tts.audio_store import AudioStore
@@ -21,6 +22,7 @@ from app.models.tts.factory import build_tts_provider
 from app.runtime.runtime import CharacterRuntime
 from app.session.store import SessionStore
 from app.transport.control_ws import router as control_router
+from app.transport.memory_http import router as memory_router
 from app.transport.sessions_http import router as sessions_router
 from app.transport.tts_http import router as tts_router
 from app.transport.voice_http import router as voice_router
@@ -51,6 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             default_voice_id=settings.default_voice_id,
         )
         audio_store = AudioStore(settings.audio_directory)
+        memory = MemoryStore(settings.memory_directory)
         store = SessionStore(
             settings.session_directory,
             event_limit=settings.session_event_limit,
@@ -62,6 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # 兼容既有脚本/测试里的旧属性名。
         app.state.tts_port = tts_provider
         app.state.voices = voices
+        app.state.memory = memory
         app.state.audio_store = audio_store
         app.state.runtime = CharacterRuntime(
             store=store,
@@ -69,6 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             tts=tts_provider,
             audio_store=audio_store,
             voices=voices,
+            memory=memory,
             history_max_messages=settings.history_max_messages,
             history_max_chars=settings.history_max_chars,
         )
@@ -114,6 +119,7 @@ def create_app() -> FastAPI:
     app.include_router(voice_router)
     app.include_router(voices_router)
     app.include_router(sessions_router)
+    app.include_router(memory_router)
     return app
 
 

@@ -79,7 +79,7 @@
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| Memory / Relationship | 未实现 | `backend/app/memory/` 只有空包；没有读写消息、长期记忆或关系状态 |
+| Memory / Relationship | MVP 已实现 | 显式指令（记住/叫我/喜欢/讨厌）→ `runtime/memory/memory.json`；每回合好感度与关系阶段注入 prompt；`/memory` CRUD。自动抽取/向量检索未做 |
 | Vision / OCR / Video | 未实现 | `backend/app/models/vision/`、`ocr/` 只有空包 |
 | Action Controller | 未实现 | `backend/app/actions/` 只有空包；没有 action 注册、参数校验或结果回传 |
 | World | 未实现 | 没有时间、环境、主动行为循环 |
@@ -189,7 +189,7 @@
 ## 10. 明确不宣称的内容
 
 - 不宣称 Electron 窗口内播放、停止、自动播放、克隆表单交互已验收。
-- 不宣称 Memory / Vision / Action / World / VAD / 实时音频 / 网络级流式 TTS 已实现；分句级流式与情绪标签已实现。
+- 不宣称 Memory 自动抽取/向量检索、Vision / Action / World / VAD / 实时音频 / 网络级流式 TTS 已实现；Memory MVP、分句级流式与情绪标签已实现。
 - 不宣称 GPT-SoVITS 训练流程已迁移；仅保留 legacy 推理。
 - 不宣称 Live2D 丛雨模型或正式口型同步已完成；仓库不附带模型资源。示例模型已接 Web Audio 振幅口型。
 - 不宣称多用户、多会话并发、鉴权或公网部署已支持；当前是 `127.0.0.1` 本地单用户原型。

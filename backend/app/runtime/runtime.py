@@ -13,6 +13,7 @@ from collections.abc import Mapping
 
 from pydantic import BaseModel
 
+from app.memory.store import MemoryStore
 from app.models.tts.audio_store import AudioStore
 from app.models.tts.base import TtsProvider
 from app.runtime.pipeline import ReplyAgent, ReplyPipeline
@@ -32,6 +33,7 @@ class CharacterRuntime:
         tts: TtsProvider,
         audio_store: AudioStore,
         voices: VoiceRegistry,
+        memory: MemoryStore | None = None,
         history_max_messages: int = 12,
         history_max_chars: int = 4000,
     ) -> None:
@@ -40,6 +42,7 @@ class CharacterRuntime:
         self._tts = tts
         self._audio_store = audio_store
         self._voices = voices
+        self._memory = memory
         self._history_max_messages = history_max_messages
         self._history_max_chars = history_max_chars
 
@@ -130,6 +133,7 @@ class CharacterRuntime:
                 audio_store=self._audio_store,
                 voices=self._voices,
                 publish=self.publish,
+                memory=self._memory,
                 history_max_messages=self._history_max_messages,
                 history_max_chars=self._history_max_chars,
             )

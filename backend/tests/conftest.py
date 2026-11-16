@@ -42,7 +42,12 @@ def harness_factory(tmp_path, monkeypatch):
 
     clients = []
 
-    def factory(*, chat: FakeChat | None = None, tts: FakeTts | None = None) -> Harness:
+    def factory(
+        *,
+        chat: FakeChat | None = None,
+        tts: FakeTts | None = None,
+        memory=None,
+    ) -> Harness:
         chat = chat if chat is not None else FakeChat()
         tts = tts if tts is not None else FakeTts()
         client = make_client()
@@ -59,6 +64,7 @@ def harness_factory(tmp_path, monkeypatch):
             chat=chat,
             tts=tts,
             voices=voices,
+            memory=memory,
         )
         return Harness(
             client=client,

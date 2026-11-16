@@ -2,7 +2,7 @@
 
 > 状态：与当前实现一致（2026-11）
 > 参考：`octos-ts` 的「内核 + 协议边界 + 事件账本 + 投影 + 覆盖清单」设计
-> 范围：文本/语音 → Agent → TTS → 播放，以及音色档案与零样本克隆；Memory / Vision / Action / World 仍为后续阶段。
+> 范围：文本/语音 → Agent → TTS → 播放、音色档案/零样本克隆，以及 Memory MVP（显式指令 + 关系值）；Vision / Action / World 仍为后续阶段。
 
 ## 1. 目标
 
@@ -15,7 +15,7 @@
 ## 2. 非目标
 
 - 不做通用 coding agent：不引入工具调用、审批、MCP、工作流、子代理、上下文压缩、代码工作区。
-- 不实现 Memory / Relationship / World / Vision / OCR / Action Controller / 情绪状态机（保留目录与文档规划）。
+- 不实现 Memory 的自动抽取/向量检索/长期关系事件；不实现 Vision / OCR / Action Controller / World（保留目录与文档规划）。
 - 不把 GPT-SoVITS 训练流程搬进本仓库；legacy 推理适配器保留。
 - 不承诺 Electron 窗口内的音频播放与克隆面板交互可自动化验收；由人工验收并如实记录。
 - 不做公网部署、鉴权、多租户；当前是 `127.0.0.1` 本地单用户原型。
@@ -252,6 +252,7 @@ backend/runtime/
 - 内置档案：`murasame`（`assets/voices/murasame/murasame_ref.wav`，ZH，零样本克隆）。
 - 克隆：`POST /voices`（multipart：name/audio/language）→ PyAV 解码并规范化为 16-bit mono WAV（WAV 保留源采样率；非 WAV 统一 44.1kHz）→ 校验 1–60s → 存 `runtime/voices/<id>/reference.wav` → 写 `profiles.json` → 201。`PATCH /voices/{id}` 重命名、`GET /voices/{id}/sample` 试听、`DELETE /voices/{id}` 只删用户档案；内置档案 409。
 - 会话列表：`GET /sessions` 扫描 `runtime/sessions/*`，标题取首条用户消息，按最近消息倒序；桌面端用它做会话切换/新建。
+- Memory（MVP）：`backend/app/memory/store.py` 持久化 `runtime/memory/memory.json`；识别“记住…”“叫我…”“我喜欢/讨厌…”显式指令，每回合累计好感度并映射关系阶段；`context_text()` 在每回合注入 system prompt。`GET/POST/DELETE/PATCH /memory` 供桌面面板查看/增删备注与改称呼。不做自动抽取或向量检索。
 - TTS Port 请求：`text`、`reference_audio`（绝对路径）、`language`、`emotion`（可选）、`duration_factor`、`provider_options`。
   - `IndexTtsProvider` 转 sidecar 契约（`POST /synthesize`），只发送非空字段；`provider_options` 不发给 IndexTTS。
   - `GptSovitsProvider` 用档案 `gpt_sovits` 段的容器内路径/prompt；缺省退回请求里的绝对路径。

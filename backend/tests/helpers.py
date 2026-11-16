@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from app.agent.agent_core import AgentCore
 from app.config import settings
 from app.main import app
+from app.memory.store import MemoryStore
 from app.models.llm import LlmUnavailable
 from app.models.tts.audio_store import AudioStore
 from app.models.tts.base import SynthesisRequest, TtsUnavailable
@@ -88,6 +89,7 @@ def build_runtime(
     chat: FakeChat,
     tts: FakeTts,
     voices: VoiceRegistry | None = None,
+    memory: MemoryStore | None = None,
 ) -> CharacterRuntime:
     if voices is None:
         voices = VoiceRegistry(
@@ -100,6 +102,7 @@ def build_runtime(
         tts=tts,
         audio_store=AudioStore(str(audio_dir)),
         voices=voices,
+        memory=memory,
         history_max_messages=settings.history_max_messages,
         history_max_chars=settings.history_max_chars,
     )

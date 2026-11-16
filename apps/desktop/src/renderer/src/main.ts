@@ -4,6 +4,7 @@ import { AudioPlayer } from './audio/player'
 import { AudioRecorder } from './audio/recorder'
 import { cloneVoice, deleteVoice, httpBaseFromControlUrl, listVoices, renameVoice, type VoiceProfile } from './api/voices'
 import { listSessions } from './api/sessions'
+import { addMemoryNote, deleteMemoryNote, getMemory } from './api/memory'
 import { Live2DController } from './live2d/controller'
 import { ControlClient } from './transport/control-client'
 import type {
@@ -15,6 +16,7 @@ import type {
 } from './transport/protocol'
 import { createChatView } from './ui/chat'
 import { createVoiceView } from './ui/voices'
+import { createMemoryView } from './ui/memory'
 
 const DEFAULT_CONTROL_URL = 'ws://127.0.0.1:8090/ws/control'
 const SESSION_STORAGE_KEY = 'vob.session_id'
@@ -55,6 +57,7 @@ function readStoredCursor(): number | null {
 
 const chat = createChatView()
 const voiceView = createVoiceView()
+const memoryView = createMemoryView()
 const player = new AudioPlayer()
 const recorder = new AudioRecorder()
 const live2d = new Live2DController()
@@ -480,6 +483,14 @@ async function refreshSessionList(selectedId: string | null): Promise<void> {
   }
 }
 
+async function refreshMemory(): Promise<void> {
+  try {
+    memoryView.setState(await getMemory(httpBase))
+  } catch (error) {
+    memoryView.setError(`记忆加载失败：${describeError(error)}`)
+  }
+}
+
 // ------------------------------------------------------------------ 控制通道
 
 const client = new ControlClient(
@@ -536,6 +547,9 @@ const client = new ControlClient(
       }
       if (activePlayback === null) {
         chat.setCharacterPhase('idle')
+      }
+      if (memoryView.isOpen()) {
+        void refreshMemory()
       }
     },
     onTurnCancelled: (payload) => {
@@ -651,6 +665,26 @@ voiceView.onDelete((voiceId) => {
 
 voiceView.onRename((voiceId) => {
   renameVoiceAction(voiceId)
+})
+
+memoryView.onOpen(() => {
+  void refreshMemory()
+})
+
+memoryView.onAdd((text) => {
+  void addMemoryNote(httpBase, text)
+    .then(() => refreshMemory())
+    .catch((error: unknown) => {
+      memoryView.setError(`添加记忆失败：${describeError(error)}`)
+    })
+})
+
+memoryView.onDelete((noteId) => {
+  void deleteMemoryNote(httpBase, noteId)
+    .then(() => refreshMemory())
+    .catch((error: unknown) => {
+      memoryView.setError(`删除记忆失败：${describeError(error)}`)
+    })
 })
 
 function interruptPlayback(): void {

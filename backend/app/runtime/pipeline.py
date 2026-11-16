@@ -22,6 +22,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from app.agent.agent_core import AgentReply
+from app.memory.store import MemoryStore
 from app.models.llm import LlmUnavailable
 from app.models.tts.audio_store import AudioStore
 from app.models.tts.base import TtsProvider, TtsUnavailable
@@ -59,6 +60,7 @@ class ReplyAgent(Protocol):
         self,
         text: str,
         history: Sequence[Mapping[str, str]] | None = None,
+        memory: str | None = None,
     ) -> AgentReply: ...
 
 
@@ -90,6 +92,7 @@ class ReplyPipeline:
         audio_store: AudioStore,
         voices: VoiceRegistry,
         publish: PublishFn,
+        memory: MemoryStore | None = None,
         history_max_messages: int = 12,
         history_max_chars: int = 4000,
     ) -> None:
@@ -100,6 +103,7 @@ class ReplyPipeline:
         self._audio_store = audio_store
         self._voices = voices
         self._publish = publish
+        self._memory = memory
         self._history_max_messages = history_max_messages
         self._history_max_chars = history_max_chars
 
@@ -211,9 +215,19 @@ class ReplyPipeline:
                 {"role": message.role, "content": message.text}
                 for message in self._history(upto_seq=user_seq)
             ]
-            agent_reply = await self._agent.handle_turn(text, history=history)
+            memory_context = ""
+            if self._memory is not None:
+                self._memory.observe_user_text(text)
+                memory_context = self._memory.context_text()
+            agent_reply = await self._agent.handle_turn(
+                text,
+                history=history,
+                memory=memory_context or None,
+            )
             reply = agent_reply.text
             emotion = agent_reply.emotion
+            if self._memory is not None:
+                self._memory.record_turn()
 
             message_id = new_id()
             self._store.append_message(

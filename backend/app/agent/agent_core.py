@@ -90,8 +90,10 @@ class AgentCore:
         self,
         text: str,
         history: Sequence[Mapping[str, str]] | None = None,
+        memory: str | None = None,
     ) -> AgentReply:
-        raw = await self._chat.reply(text, system=SYSTEM_PROMPT, history=history)
+        system = SYSTEM_PROMPT if not memory else f"{SYSTEM_PROMPT}\n\n{memory}"
+        raw = await self._chat.reply(text, system=system, history=history)
         return parse_agent_reply(raw)
 
     async def handle_user_text(

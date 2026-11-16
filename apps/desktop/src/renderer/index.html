@@ -24,6 +24,7 @@
           </select>
           <button id="session-new" class="session-bar__new" type="button">新会话</button>
         </div>
+        <button id="memory-open" class="memory-open" type="button">记忆</button>
         <div class="voice-bar">
           <label class="voice-bar__label" for="voice-select">音色</label>
           <select id="voice-select" aria-label="音色选择">
@@ -74,8 +75,7 @@
       </form>
 
       <section id="clone-panel" class="clone-panel" aria-label="音色克隆" hidden>
-        <form id="clone-form" class="clone-panel__card">
-          <h2 class="clone-panel__title">克隆音色</h2>
+        <form id="clone-form" class="clone-panel__card">          <h2 class="clone-panel__title">克隆音色</h2>
 
           <label class="clone-panel__field">
             <span>名称</span>
@@ -104,6 +104,22 @@
             <button id="clone-cancel" class="clone-panel__cancel" type="button">取消</button>
           </div>
         </form>
+      </section>
+
+      <section id="memory-panel" class="clone-panel" aria-label="长期记忆" hidden>
+        <div class="clone-panel__card">
+          <h2 class="clone-panel__title">长期记忆</h2>
+          <p id="memory-summary" class="memory-summary"></p>
+          <ul id="memory-notes" class="memory-notes"></ul>
+          <form id="memory-form" class="memory-form">
+            <input id="memory-input" type="text" maxlength="200" placeholder="例如：记住 我喜欢红茶" />
+            <button id="memory-add" class="clone-panel__submit" type="submit">添加</button>
+          </form>
+          <p id="memory-error" class="clone-panel__error" role="alert" hidden></p>
+          <div class="clone-panel__actions">
+            <button id="memory-close" class="clone-panel__cancel" type="button">关闭</button>
+          </div>
+        </div>
       </section>
     </div>
 

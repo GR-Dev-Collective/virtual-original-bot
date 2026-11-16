@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     history_max_messages: int = 12
     history_max_chars: int = 4000
     session_event_limit: int = 2000
+    memory_directory: str = "runtime/memory"
 
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3:8b"
