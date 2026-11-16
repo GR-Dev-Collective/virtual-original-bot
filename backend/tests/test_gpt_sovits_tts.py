@@ -14,7 +14,10 @@ def test_synthesizes_audio() -> None:
 
     async def run() -> bytes:
         transport = httpx.MockTransport(handler)
-        async with httpx.AsyncClient(transport=transport) as client:
+        async with httpx.AsyncClient(
+            transport=transport,
+            trust_env=False,
+        ) as client:
             tts = GptSovitsTts("http://tts.test/", client)
             return await tts.synthesize(TtsRequest(text="hello", text_language="ja"))
 
@@ -24,7 +27,10 @@ def test_synthesizes_audio() -> None:
 def test_rejects_non_audio_response() -> None:
     async def run() -> None:
         transport = httpx.MockTransport(lambda _: httpx.Response(200, json={"error": "bad"}))
-        async with httpx.AsyncClient(transport=transport) as client:
+        async with httpx.AsyncClient(
+            transport=transport,
+            trust_env=False,
+        ) as client:
             tts = GptSovitsTts("http://tts.test/", client)
             with pytest.raises(TtsUnavailable, match="无效音频"):
                 await tts.synthesize(TtsRequest(text="hello"))

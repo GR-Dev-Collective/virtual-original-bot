@@ -1,5 +1,6 @@
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
@@ -14,7 +15,7 @@ class AsrResponse(BaseModel):
 @router.post("", response_model=AsrResponse)
 async def transcribe(
     request: Request,
-    audio: UploadFile = File(...),
+    audio: Annotated[UploadFile, File()],
 ) -> AsrResponse:
     suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
     data = await audio.read()

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "refactor/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install backend deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements-dev.txt
+      - name: Backend tests
+        run: python -m pytest backend -q
+      - name: Sidecar service tests
+        run: python -m pytest services/indextts_service/tests -q
+      - name: Lint
+        run: python -m ruff check backend/app backend/tests services/indextts_service
+
+  desktop:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install desktop deps
+        run: npm ci --prefix apps/desktop --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck --prefix apps/desktop
+      - name: Build
+        run: npm run build --prefix apps/desktop

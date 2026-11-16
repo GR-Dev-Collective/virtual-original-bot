@@ -1,185 +1,189 @@
-"""控制通道的端到端测试：握手、回复、非法消息，以及 LLM 不可用时的报错。
+"""控制通道端到端：握手、回复、失败路径与连接存活。"""
 
-测试用假 ChatModel 替换真实 Ollama，不产生任何外部请求。
-"""
+from __future__ import annotations
 
-from collections.abc import Iterator
-import asyncio
-
-import pytest
-from fastapi.testclient import TestClient
-
-from app.agent.agent_core import AgentCore
-from app.main import app
-from app.models.llm import LlmUnavailable
-from app.models.tts.audio_store import AudioStore
-from app.models.tts.gpt_sovits import TtsRequest, TtsUnavailable
-
-USER_TEXT = {"type": "user.text", "id": "m1", "ts": 1, "payload": {"text": "你好"}}
+from app.config import REPO_ROOT
+from tests.helpers import (
+    FAKE_AUDIO,
+    FakeChat,
+    FakeTts,
+    connect,
+    expect_next,
+    handshake,
+    send,
+    send_user_text,
+)
 
 
-class FakeChat:
-    def __init__(self, reply_text: str = "我が輩 已收到。", failure: str | None = None) -> None:
-        self._reply_text = reply_text
-        self._failure = failure
-        self.calls: list[tuple[str, str | None]] = []
-
-    async def reply(self, text: str, system: str | None = None) -> str:
-        self.calls.append((text, system))
-        if self._failure is not None:
-            raise LlmUnavailable(self._failure)
-        return self._reply_text
-
-
-class FakeTts:
-    def __init__(self, failure: str | None = None, block: bool = False) -> None:
-        self.failure = failure
-        self.block = block
-        self.requests: list[TtsRequest] = []
-
-    async def synthesize(self, request: TtsRequest) -> bytes:
-        self.requests.append(request)
-        if self.block:
-            await asyncio.sleep(60)
-        if self.failure is not None:
-            raise TtsUnavailable(self.failure)
-        return b"RIFF test audio"
-
-
-@pytest.fixture
-def chat() -> FakeChat:
-    return FakeChat()
-
-
-@pytest.fixture
-def client(chat: FakeChat, tmp_path) -> Iterator[TestClient]:
-    with TestClient(app) as test_client:
-        app.state.agent = AgentCore(chat)
-        app.state.tts = FakeTts()
-        app.state.audio_store = AudioStore(str(tmp_path))
-        yield test_client
-
-
-def test_health(client: TestClient) -> None:
-    response = client.get("/health")
+def test_health(harness) -> None:
+    response = harness.client.get("/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_session_ready_is_sent_on_connect(client: TestClient) -> None:
-    with client.websocket_connect("/ws/control") as ws:
-        message = ws.receive_json()
+def test_session_is_opened_on_connect(harness) -> None:
+    with connect(harness.client) as ws:
+        ready, opened = handshake(ws)
 
-    assert message["type"] == "session.ready"
-    assert message["payload"]["session_id"]
-
-
-def test_user_text_is_answered_by_the_agent(client: TestClient, chat: FakeChat) -> None:
-    with client.websocket_connect("/ws/control") as ws:
-        ws.receive_json()
-        ws.send_json(USER_TEXT)
-        reply = ws.receive_json()
-
-    assert reply["type"] == "agent.text"
-    assert reply["payload"]["reply_to"] == "m1"
-    assert reply["payload"]["text"] == "我が輩 已收到。"
-    assert chat.calls[0][0] == "你好"
-    assert chat.calls[0][1] is not None  # 系统提示确实传下去了
+    assert ready["type"] == "server.ready"
+    assert opened["payload"]["session_id"]
+    assert opened["payload"]["voice_id"] == "murasame"
 
 
-def test_text_reply_is_synthesized_and_audio_can_be_fetched(client: TestClient) -> None:
-    with client.websocket_connect("/ws/control") as ws:
-        ws.receive_json()
-        ws.send_json(USER_TEXT)
-        assert ws.receive_json()["type"] == "agent.text"
-        assert ws.receive_json()["type"] == "tts.started"
-        ready = ws.receive_json()
+def test_user_text_is_answered_and_audio_can_be_fetched(harness) -> None:
+    with connect(harness.client) as ws:
+        handshake(ws)
+        send_user_text(ws)
+        turn_started = expect_next(ws, "turn.started")
+        expect_next(ws, "character.state")
+        agent_text = expect_next(ws, "agent.text")
+        tts_started = expect_next(ws, "tts.started")
+        tts_ready = expect_next(ws, "tts.ready")
 
-    assert ready["type"] == "tts.ready"
-    audio_response = client.get(ready["payload"]["audio_url"])
+    assert turn_started["payload"]["reply_to"] == "m1"
+    assert agent_text["payload"]["reply_to"] == "m1"
+    assert agent_text["payload"]["text"] == "我が輩 已收到。"
+    assert tts_started["payload"]["voice_id"] == "murasame"
+    assert tts_ready["payload"]["audio_url"].startswith("/tts/")
+
+    audio_response = harness.client.get(tts_ready["payload"]["audio_url"])
     assert audio_response.status_code == 200
-    assert audio_response.content == b"RIFF test audio"
-    tts = app.state.tts
-    assert tts.requests[0].refer_wav_path == "/workspace/data/references/murasame_ref.ogg"
-    assert tts.requests[0].prompt_text == "はっはっはっは"
-    assert tts.requests[0].prompt_language == "ja"
+    assert audio_response.content == FAKE_AUDIO
+    assert harness.chat.calls[0]["system"] is not None
 
 
-def test_tts_cancel_reports_cancelled_reason(chat: FakeChat, tmp_path) -> None:
-    with TestClient(app) as client:
-        app.state.agent = AgentCore(chat)
-        app.state.tts = FakeTts(block=True)
-        app.state.audio_store = AudioStore(str(tmp_path))
-        with client.websocket_connect("/ws/control") as ws:
-            ws.receive_json()
-            ws.send_json(USER_TEXT)
-            ws.receive_json()
-            started = ws.receive_json()
-            ws.send_json(
-                {
-                    "type": "tts.cancel",
-                    "id": "cancel-1",
-                    "ts": 2,
-                    "payload": {"tts_id": started["payload"]["tts_id"]},
-                }
-            )
-            cancelled = ws.receive_json()
+def test_llm_failure_becomes_turn_error_and_connection_survives(harness_factory) -> None:
+    chat = FakeChat(failure="连接被拒绝")
+    harness = harness_factory(chat=chat)
 
-    assert cancelled["type"] == "tts.cancelled"
-    assert cancelled["payload"]["reason"] == "cancelled"
+    with connect(harness.client) as ws:
+        handshake(ws)
 
+        send_user_text(ws)
+        expect_next(ws, "turn.started")
+        expect_next(ws, "character.state")
+        error_state = expect_next(ws, "character.state")
+        turn_error = expect_next(ws, "turn.error")
 
-def test_tts_failure_returns_tts_unavailable_error(chat: FakeChat, tmp_path) -> None:
-    with TestClient(app) as client:
-        app.state.agent = AgentCore(chat)
-        app.state.tts = FakeTts(failure="服务不可用")
-        app.state.audio_store = AudioStore(str(tmp_path))
-        with client.websocket_connect("/ws/control") as ws:
-            ws.receive_json()
-            ws.send_json(USER_TEXT)
-            assert ws.receive_json()["type"] == "agent.text"
-            assert ws.receive_json()["type"] == "tts.started"
-            error = ws.receive_json()
+        assert error_state["payload"]["phase"] == "error"
+        assert turn_error["payload"]["code"] == "llm_unavailable"
+        assert turn_error["payload"]["reply_to"] == "m1"
 
-    assert error["type"] == "error"
-    assert error["payload"]["code"] == "tts_unavailable"
+        # 报错后连接仍可继续使用
+        send_user_text(ws, "再来一次", message_id="m2")
+        expect_next(ws, "turn.started")
+        expect_next(ws, "character.state")
+        expect_next(ws, "character.state")
+        assert expect_next(ws, "turn.error")["payload"]["reply_to"] == "m2"
 
 
-def test_channel_survives_malformed_message(client: TestClient) -> None:
-    with client.websocket_connect("/ws/control") as ws:
-        ws.receive_json()
+def test_tts_failure_becomes_tts_failed(harness_factory) -> None:
+    tts = FakeTts(failure="TTS 服务不可用")
+    harness = harness_factory(tts=tts)
+
+    with connect(harness.client) as ws:
+        handshake(ws)
+        send_user_text(ws)
+        expect_next(ws, "turn.started")
+        expect_next(ws, "character.state")
+        expect_next(ws, "agent.text")
+        expect_next(ws, "tts.started")
+        failed = expect_next(ws, "tts.failed")
+        error_state = expect_next(ws, "character.state")
+        completed = expect_next(ws, "turn.completed")
+
+    assert failed["payload"]["code"] == "tts_unavailable"
+    assert failed["payload"]["voice_id"] == "murasame"
+    assert error_state["payload"]["phase"] == "error"
+    assert completed["payload"]["reply_to"] == "m1"
+
+
+def test_channel_survives_malformed_message(harness) -> None:
+    with connect(harness.client) as ws:
+        handshake(ws)
 
         ws.send_text("这不是 JSON")
-        assert ws.receive_json()["payload"]["code"] == "invalid_message"
+        assert expect_next(ws, "error")["payload"]["code"] == "invalid_message"
 
-        ws.send_json({"type": "ping", "id": "m2", "ts": 1, "payload": {}})
-        assert ws.receive_json()["payload"]["code"] == "invalid_message"
-
-        # 信封合法但前端不该发这个类型，走 unsupported_type 分支
-        ws.send_json({"type": "session.ready", "id": "m4", "ts": 1, "payload": {"session_id": "x"}})
-        assert ws.receive_json()["payload"]["code"] == "unsupported_type"
-
-        ws.send_json({"type": "user.text", "id": "m3", "ts": 1, "payload": {"text": ""}})
-        assert ws.receive_json()["payload"]["code"] == "invalid_message"
-
-        ws.send_json(USER_TEXT)
-        assert ws.receive_json()["type"] == "agent.text"
+        send_user_text(ws, "仍然可用", message_id="m3")
+        assert expect_next(ws, "turn.started")["payload"]["reply_to"] == "m3"
 
 
-def test_llm_failure_becomes_an_error_message() -> None:
-    with TestClient(app) as test_client:
-        app.state.agent = AgentCore(FakeChat(failure="连接被拒绝"))
+def test_tts_request_uses_default_voice_profile(harness) -> None:
+    with connect(harness.client) as ws:
+        handshake(ws)
+        send_user_text(ws)
+        expect_next(ws, "turn.started")
+        expect_next(ws, "character.state")
+        expect_next(ws, "agent.text")
+        expect_next(ws, "tts.started")
+        expect_next(ws, "tts.ready")
 
-        with test_client.websocket_connect("/ws/control") as ws:
-            ws.receive_json()
-            ws.send_json(USER_TEXT)
-            error = ws.receive_json()
+    request = harness.tts.requests[0]
+    assert request.reference_audio == str(
+        REPO_ROOT / "assets" / "voices" / "murasame" / "murasame_ref.wav"
+    )
+    assert request.language == "ZH"
+    assert request.duration_factor == 1.0
+    assert request.provider_options == {
+        "refer_wav_path": "/workspace/data/references/murasame_ref.ogg",
+        "prompt_text": "はっはっはっは",
+        "prompt_language": "ja",
+    }
 
-            assert error["type"] == "error"
-            assert error["payload"]["code"] == "llm_unavailable"
-            assert error["payload"]["reply_to"] == "m1"
 
-            # 报错后连接仍可继续使用
-            ws.send_json(USER_TEXT)
-            assert ws.receive_json()["type"] == "error"
+def test_voice_select_broadcasts_and_tts_uses_selected_voice(harness, tmp_path) -> None:
+    reference = tmp_path / "clone.wav"
+    reference.write_bytes(b"RIFF")
+    profile = harness.voices.register(
+        display_name="测试音色",
+        reference_audio=reference,
+        language="JA",
+    )
+
+    with connect(harness.client) as ws:
+        _, opened = handshake(ws)
+        session_id = opened["payload"]["session_id"]
+
+        send(ws, "voice.select", {"voice_id": profile.id}, message_id="vs-1")
+        selected = expect_next(ws, "voice.selected")
+        assert selected["payload"] == {
+            "voice_id": profile.id,
+            "display_name": "测试音色",
+        }
+
+        send_user_text(ws)
+        expect_next(ws, "turn.started")
+        expect_next(ws, "character.state")
+        expect_next(ws, "agent.text")
+        tts_started = expect_next(ws, "tts.started")
+        tts_ready = expect_next(ws, "tts.ready")
+
+    assert tts_started["payload"]["voice_id"] == profile.id
+    assert tts_ready["payload"]["voice_id"] == profile.id
+    request = harness.tts.requests[0]
+    assert request.reference_audio == str(profile.reference_audio_path)
+    assert request.language == "JA"
+
+    # 会话音色持久化：重连后 session.opened 仍是选中的音色。
+    with connect(harness.client, session_id=session_id) as ws:
+        _, reopened = handshake(ws)
+    assert reopened["payload"]["voice_id"] == profile.id
+
+
+def test_voice_select_unknown_reports_voice_not_found(harness) -> None:
+    with connect(harness.client) as ws:
+        handshake(ws)
+
+        send(ws, "voice.select", {"voice_id": "missing"}, message_id="vs-2")
+        error = expect_next(ws, "error")
+        assert error["payload"]["code"] == "voice_not_found"
+        assert error["payload"]["reply_to"] == "vs-2"
+
+        # 失败不影响后续回合：仍用默认音色合成。
+        send_user_text(ws)
+        expect_next(ws, "turn.started")
+        expect_next(ws, "character.state")
+        expect_next(ws, "agent.text")
+        assert expect_next(ws, "tts.started")["payload"]["voice_id"] == "murasame"

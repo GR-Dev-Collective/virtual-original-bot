@@ -1,114 +1,236 @@
 # virtual-original-bot
 
-虚拟机器人原型机：一个基于 Electron、FastAPI 和多模态模型的桌面虚拟角色项目。
+[![CI](https://github.com/GR-Dev-Collective/virtual-original-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/GR-Dev-Collective/virtual-original-bot/actions/workflows/ci.yml)
 
-项目目标是让虚拟角色能够通过文本、语音和视觉输入理解用户，并通过语音、Live2D 表情、情绪状态和可控动作进行反馈。
+虚拟角色桌面原型：Electron 渲染角色与聊天界面，FastAPI 后端负责会话、回合、事件账本与模型编排，本地 Ollama 生成回复，IndexTTS-2.5 完成零样本音色克隆与语音合成。
 
-项目处于桌面原型阶段。基础通信、Ollama 对话、GPT-SoVITS TTS、ASR 接口和 Live2D 本地验证界面已接入；第二阶段的 Electron 语音播放/取消验收仍在进行。
+当前版本是 **v2 运行时**：控制通道升级为版本化协议 `vob/1`，会话可以持久化、断线重放与 `hydrate` 恢复；TTS 默认走 IndexTTS-2.5 sidecar，GPT-SoVITS 保留为 legacy 可选实现。
+
+> 文档以代码为准。协议字段的权威定义见 [`shared/contracts/control-message.schema.json`](shared/contracts/control-message.schema.json) 与 [`shared/contracts/protocol.md`](shared/contracts/protocol.md)。本文只描述已经实现并验证过的行为。
 
 ## 当前状态
 
-当前仓库已经包含：
+### 已完成并验证
 
-- FastAPI 控制通道 WebSocket：`backend/app/transport/control_ws.py`
-- 文本 Agent：经 Ollama 调用 `qwen3:8b`
-- GPT-SoVITS Docker 推理服务：`docker/gpt-sovits/`
-- GPT-SoVITS TTS Adapter、音频资源接口和 TTS 生命周期事件
-- Electron 文本聊天、TTS 播放、停止语音和单次录音按钮
-- faster-whisper ASR HTTP 接口：`POST /asr`
-- Live2D Cubism 渲染、Mao PRO 示例动作/表情验证控件和 TTS 期间的口型状态代码
-- 共享控制协议：`shared/contracts/`
+- **后端 v2 运行时**（`backend/`）
+  - `vob/1` 控制协议：`server.ready` / `capabilities`、`session.opened`、`session.state`、`turn.*`、`agent.text`、`tts.started|ready|failed|cancelled|finished`、`voice.selected`、`character.state`、`error`。
+  - 命令：`session.open`、`session.hydrate`、`user.text`、`voice.select`、`tts.cancel`、`tts.finished`。
+  - `SessionStore`：`backend/runtime/sessions/<session_id>/` 下持久化 `meta.json`、`messages.jsonl`、`events.jsonl`，事件带单调 `seq`，支持 `after` 重放与 `hydrate` 快照。
+  - `ReplyPipeline`：单会话单 active turn、新输入打断旧 turn、最近历史窗口、回复截断到 300 字。
+  - `character.state` 完全由事件账本投影（`idle` / `thinking` / `speaking` / `error`）。
+  - `GET /health`、`GET/PATCH/POST/DELETE /voices`、`GET /voices/{id}/sample`、`GET /sessions`、`POST /tts`、`GET /tts/{audio_id}`、`POST /asr`。
+- **TTS**
+  - 默认 provider：`index_tts`，指向 `http://127.0.0.1:9882` 的 IndexTTS-2.5 sidecar。
+  - legacy provider：`TTS_PROVIDER=gpt_sovits`，指向 `http://127.0.0.1:9880/`。
+  - 分句合成：回复按句末标点切分（单段 ≤80 字），逐段发 `tts.ready`，桌面端边收边播。
+  - 音色档案：`backend/config/voices.json` 内置 `murasame`（丛雨），参考音频 `assets/voices/murasame/murasame_ref.wav`；用户克隆档案存 `backend/runtime/voices/`。
+  - 情绪联动：Agent 返回 `{text, emotion}`；`character.state.emotion` 驱动 Live2D 示例表情，并转成 IndexTTS 8 维情感向量。
+- **Memory（MVP）**
+  - `backend/app/memory/store.py`：本地 `runtime/memory/memory.json`；识别显式指令（“记住…”“叫我…”“我喜欢…”）和低风险档案（“我的生日是…”“我住在…”“我在…工作”），互动次数与好感度/关系阶段（初识/熟悉/亲近/信赖）。
+  - 每回合把整理后的长期记忆 + 阶段语气注入 system prompt；`GET/POST/DELETE/PATCH /memory` 与桌面“记忆”面板可查看/添加/删除备注、修改称呼。
+- **桌面端**（`apps/desktop/`）
+  - `vob/1` 客户端：握手、`localStorage` 保存 `session_id`/`cursor`、断线重连与 `after` 重放、`session.hydrate` 快照恢复、会话列表/切换/新建、`voice.select` 音色下拉、克隆面板、音色试听/重命名/删除、CSP 修正、播放结束回报 `tts.finished`。
+  - Live2D 口型：用 Web Audio 分析播放振幅驱动 `ParamA`；无分析器时退回轻量合成动画。
+  - `npm run typecheck` 与 `npm run build` 通过。
 
-当前已接入并通过接口检查的流程：
+### 验证记录
+
+| 项目 | 结果 |
+| --- | --- |
+| 后端测试 | `132 passed`（`backend/`） |
+| 后端 ruff | 通过 |
+| sidecar 测试 | `56 passed`（`services/indextts_service/`） |
+| sidecar ruff | 通过 |
+| 桌面 typecheck / build | 通过 |
+| 真实 GPU 合成 | 已跑通，22050Hz，单句约 2.23s / 7.5s 等 |
+| 后端 HTTP | `/voices`、`/tts`、克隆与删除已跑通 |
+| WebSocket 全链路 | LLM → TTS → `audio_url` → `hydrate` → 重连重放 9 条 → `voice.select` 已跑通 |
+| 分句 TTS + 情绪 | 已跑通：真实 IndexTTS 返回 2 段 `tts.ready`（`segment_index=0/1`），Agent 情绪 `calm` 写入 `character.state` 并转成 TTS 情感向量 |
+| 会话与音色管理 | `GET /sessions` 列表、`session.open` 切换/新建、音色试听/重命名/删除均有测试覆盖 |
+| Electron 截图验收 | 通过：Mao 模型加载、角色渲染、音色/克隆/输入控件齐全 |
+| ASR | 通过：faster-whisper-large-v3（CPU int8）转写真实 TTS 音频 |
+| sidecar mock | 启动/等待脚本已跑通 |
+
+### 尚未自动验证
+
+- **Electron 窗口内的实际音频播放、自动播放策略、停止语音与克隆面板交互**没有自动化验收。协议链路、构建产物、Live2D 渲染截图已验证；播放与表单交互仍需人工过一遍。
+- 真实麦克风采集 → `/asr` → 对话 → TTS 的完整人工操作链路未自动化（`/asr` 接口本身已用真实模型验证）。
+
+### 尚未实现
+
+- Memory 进阶（自动抽取、向量检索、长期关系事件）；Vision / OCR / Action Controller / World。
+- VAD、实时音频流、网络级流式 TTS（当前为分句级：逐句合成，首段就绪即播）。
+- 情绪状态机（复杂情绪建模）未实现；但 Agent 返回的情绪标签已接入 `character.state.emotion`、Live2D 示例表情与 IndexTTS 情感向量。
+- 丛雨专属 Live2D 资源与正式表情映射；仓库只带 Mao 示例的验证界面，模型资源需本地准备。
+- GPT-SoVITS 训练流程（legacy 推理仅保留）。
+
+## 架构
 
 ```text
-文本输入 → Ollama → GPT-SoVITS → 音频资源接口
-音频上传 → faster-whisper → Ollama → GPT-SoVITS → 音频资源接口
+Electron Renderer（协议客户端）
+  聊天 / Live2D / 音频播放 / 录音 / 音色下拉 / 克隆面板
+        │
+        │  WebSocket /ws/control?protocol=vob/1&session_id=&after=
+        │  vob/1：server.ready / 命令 / 通知 / seq / replay / hydrate
+        ▼
+Control Gateway（backend/app/transport）
+  能力协商 · 命令分发 · 事件扇出 · after 重放 · 错误映射
+        │
+        ▼
+CharacterRuntime（backend/app/runtime）
+  SessionStore(JSONL) · ReplyPipeline(turn) · AgentCore(人设/历史)
+  VoiceRegistry(音色档案/克隆) · AudioStore · CharacterProjection
+        │ Ports
+        ▼
+OllamaChat · IndexTtsProvider / GptSovitsProvider · FasterWhisperAsr · AudioStore
 ```
 
-ASR 需要本地存在 `ASR_MODEL_PATH` 指向的 faster-whisper 模型。Mao PRO 仅用于临时验证 Live2D 加载、动作和表情；Agent 设定与语音仍是丛雨。Mao 模型文件及 Cubism Core 放在被 Git 忽略的 `apps/desktop/public/live2d/mao/`，不随仓库分发。模型要求 moc3 版本 5，需在该目录提供兼容 Core；当前本机验证使用 Core 5.1.0。使用模型前需遵守压缩包中的 Live2D Free Material License Agreement 和 Terms of Use；Core 也受 Live2D SDK 许可条款约束。
+关键边界：
 
-桌面端自动播放、停止/取消与说话时 `ParamA` 的实际联动尚未在 Electron 窗口中完成验收。浏览器页面检查中，浏览器容器拒绝了延迟到达的自动播放请求；Electron 窗口已设置 `no-user-gesture-required` 播放策略，仍需在应用窗口确认播放结果。
+- Renderer 只消费协议，不直接调用模型；后端崩溃或断线后可从会话账本恢复。
+- Gateway 只做协议编解码、连接、重放与命令分发；回合编排在 `ReplyPipeline`。
+- 会话状态归后端所有；`session.state` 是权威快照，实时通知只是增量。
+- 音色是**会话级**选择（`meta.json.voice_id`），音色档案是**进程级**资源（`VoiceRegistry`）。
+- 模型通过 Port/Adapter 注入；测试用 Fake/Mock，真实 GPU 只用于端到端验证。
 
-当前 ASR 默认使用 CPU `int8`，不依赖主机上的 CUDA 动态库。需要 GPU 时，可通过 `ASR_DEVICE` 和 `ASR_COMPUTE_TYPE` 配置；Windows GPU 推理还需要安装 CUDA 12.x 与对应的 cuDNN。
-
-尚未实现 VAD、实时音频流、丛雨专属 Live2D 资源、情绪状态、Vision、Memory 和 Action Controller。
-
-## 技术栈
-
-### 前端
-
-- Electron：桌面应用容器
-- HTML / CSS / JavaScript：界面实现
-- Live2D：虚拟角色展示与动作表现
-- TypeScript：桌面 Renderer
-
-### 后端
-
-- FastAPI：HTTP API 和服务入口
-- WebSocket：实时控制消息和状态推送
-- `asyncio`：异步任务和并发处理
-- Python：模型适配、Agent 编排和业务逻辑
-
-## 当前目录结构
+### 主要目录
 
 ```text
 virtual-original-bot/
-├─ apps/desktop/                 # Electron 桌面端（electron-vite）
-│  ├─ src/main/                  # 主进程：窗口与生命周期
-│  ├─ src/preload/               # contextBridge 安全桥
-│  └─ src/renderer/              # 界面、控制通道客户端、音频和 Live2D 渲染
-│
-├─ backend/                      # FastAPI 后端
+├─ apps/desktop/                 # Electron（electron-vite）
+│  ├─ src/main/                  # 主进程、窗口与自动播放策略
+│  ├─ src/preload/               # contextBridge，注入 VOB_CONTROL_URL
+│  └─ src/renderer/              # 聊天、音色、录音、播放、Live2D、协议客户端
+│     └─ src/transport/          # protocol.ts / control-client.ts
+├─ backend/
 │  ├─ app/
-│  │  ├─ main.py                 # 应用装配
-│  │  ├─ config.py               # 配置
-│  │  ├─ transport/              # 控制通道与消息模型
-│  │  ├─ agent/                  # Agent 决策与编排
-│  │  ├─ state/                  # 会话状态
-│  │  ├─ models/                 # 模型适配器与路由（规划）
-│  │  ├─ memory/                 # 记忆（规划）
-│  │  ├─ actions/                # 动作（规划）
-│  │  └─ workers/                # 后台任务（规划）
+│  │  ├─ transport/              # /ws/control、/tts、/voices、/asr
+│  │  ├─ runtime/                # CharacterRuntime、ReplyPipeline、投影
+│  │  ├─ session/                # SessionStore 与持久化模型
+│  │  ├─ voices/                 # 音色档案、参考音频规范化、合成请求
+│  │  ├─ models/                 # LLM / TTS / ASR 适配器
+│  │  ├─ agent/                  # 人设与回复截断
+│  │  └─ config.py               # pydantic-settings 配置
+│  ├─ config/voices.json         # 内置音色档案
+│  ├─ runtime/                   # 运行期产物（git 忽略）
 │  └─ tests/
-│
-├─ shared/contracts/             # 前后端共享协议（schema + 说明）
-├─ docker/gpt-sovits/            # GPT-SoVITS 推理服务
-├─ docs/                         # 规划：架构与设计文档
-├─ scripts/                      # 规划：启动、检查和构建脚本
-├─ .gitignore
-├─ LICENSE
-└─ README.md
+├─ services/indextts_service/    # IndexTTS-2.5 HTTP sidecar（56 tests）
+├─ scripts/                      # sidecar 启停、ASR 下载、Live2D 资源准备
+├─ shared/contracts/             # vob/1 schema + protocol.md（三处契约之一）
+├─ docs/                         # 架构、协议覆盖、音色克隆
+├─ docker/gpt-sovits/            # legacy GPT-SoVITS 推理
+└─ assets/voices/                # 随仓库分发的参考音频
 ```
 
-## 运行
+## 快速开始
 
-### 前置：本地 LLM
+以下命令默认在**仓库根目录**打开 PowerShell。后端起在 `127.0.0.1:8090`，IndexTTS sidecar 在 `127.0.0.1:9882`，Ollama 在 `127.0.0.1:11434`；标注「另开终端」的步骤需要保持前一个进程继续运行。
 
-后端通过 Ollama 调用本地模型，默认 `qwen3:8b`：
+### 一键启动（推荐）
+
+`scripts/start_all.ps1` 会依次启动 sidecar、等待 `/health`、启动后端，然后（默认）打开桌面端；日志写到 `backend/runtime/logs/`，PID 写入同一目录的 `start_all.json`。
 
 ```powershell
-ollama pull qwen3:8b
-ollama serve
+# 8GB 显卡推荐让 LLM 走 CPU
+powershell -ExecutionPolicy Bypass -File scripts\start_all.ps1 -OllamaModel qwen3:4b -OllamaNumGpu 0
+
+# 只起 sidecar + 后端
+powershell -ExecutionPolicy Bypass -File scripts\start_all.ps1 -NoDesktop
+
+# 无 GPU 联调（MockEngine）
+powershell -ExecutionPolicy Bypass -File scripts\start_all.ps1 -Mock -NoDesktop
+
+# 停止（按 start_all.json 与端口清理）
+powershell -ExecutionPolicy Bypass -File scripts\stop_all.ps1
 ```
 
-模型名与服务地址可在 `backend/.env` 中用 `OLLAMA_MODEL`、`OLLAMA_BASE_URL` 覆盖。
-关掉模型思考输出（`think=false`）是刻意选择：qwen3 的思考内容对本项目没有价值，
-却会把首字延迟从约 3 秒拉到 15 秒以上。
+也可以按下面的步骤手动启动。
 
-### 后端
+### 0. 前置条件
+
+- Windows + PowerShell 5.1+。
+- Python 3.11+（后端只跑 HTTP/协议；真实 TTS 需要 index-tts 自带 `.venv`，其中才有 torch）。
+- Node.js 20+ 与 npm（桌面端）。
+- 已安装 Ollama，并已拉取对话模型（默认 `qwen3:8b`）。
+- 本地已有一份 `index-tts` 检出（通常位于 `default-workspace/index-tts`），包含 `.venv` 与 `checkpoints`。
+- NVIDIA GPU 与可用驱动；8GB 显存机器请阅读「排障」中的显存争用一节。
+
+```powershell
+# 终端 A：保持 Ollama 服务运行
+ollama serve
+
+# 终端 B：首次拉取模型
+ollama pull qwen3:8b
+```
+
+### 1. 启动 IndexTTS-2.5 sidecar
+
+先指定 index-tts 检出目录（脚本不会修改模型仓库）：
+
+```powershell
+$env:INDEXTTS_HOME = "C:\path\to\default-workspace\index-tts"
+powershell -ExecutionPolicy Bypass -File scripts\start_indextts.ps1
+```
+
+脚本会校验 `config.yaml`、`gpt.pth`、`s2mel.pth`、`codec.pth` 等文件，使用 `<INDEXTTS_HOME>\.venv\Scripts\python.exe`，并把 `TEMP`/`TMP`、`HF_HOME`、`TORCH_HOME`、`INDEXTTS_WORK_DIR` 重定向到 `<INDEXTTS_HOME>\.runtime\`（见「排障」的 Windows 沙箱一节）。终端保持打开，首次加载模型需要数十秒。
+
+可选参数：
+
+```powershell
+# 微调权重 + 换端口（后端 INDEX_TTS_BASE_URL 要同步改）
+powershell -ExecutionPolicy Bypass -File scripts\start_indextts.ps1 -ModelDir checkpoints_murasame -Port 9885
+
+# 无 GPU 联调：MockEngine 返回 0.5s/22050Hz 测试 WAV
+powershell -ExecutionPolicy Bypass -File scripts\start_indextts.ps1 -Mock
+
+# 先起服务、不预加载（/synthesize 在加载前返回 503）
+powershell -ExecutionPolicy Bypass -File scripts\start_indextts.ps1 -NoPreload
+```
+
+### 2. 等待模型就绪
+
+另开一个终端（仍在仓库根）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\wait_for_indextts.ps1 -Port 9882 -TimeoutSeconds 300
+```
+
+就绪时输出 `{"status":"ready",...}` 并以 0 退出；超时输出 `{"status":"timeout",...}` 并以 1 退出。也可以直接看 `http://127.0.0.1:9882/health` 的 `loaded` 字段。
+
+### 3. 启动后端
+
+首次运行：
 
 ```powershell
 Set-Location backend
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+Copy-Item .env.example .env
+```
+
+编辑 `backend/.env`（或直接设置环境变量），关键项：
+
+```dotenv
+TTS_PROVIDER=index_tts
+INDEX_TTS_BASE_URL=http://127.0.0.1:9882
+OLLAMA_MODEL=qwen3:8b
+# 8GB 显存与 IndexTTS 共用时让 LLM 走 CPU，把显存留给 TTS
+OLLAMA_NUM_GPU=0
+```
+
+启动：
+
+```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8090
 ```
 
-- 健康检查：`http://127.0.0.1:8090/health`
-- 控制通道：`ws://127.0.0.1:8090/ws/control`
+健康检查：`http://127.0.0.1:8090/health` 返回 `{"status":"ok"}`。
 
-> 默认端口是 8090 而非 8080：本机 8080 被系统占用且无法绑定（bind 返回 WinError 10013）。可用 `backend/.env` 覆盖。
+> 端口默认是 8090 而不是 8080：本机 8080 曾被系统占用且无法绑定（WinError 10013）。可用 `PORT` 或 `--port` 覆盖。
 
-### 桌面端
+### 4. 启动桌面端
+
+另开终端，在仓库根执行：
 
 ```powershell
 Set-Location apps\desktop
@@ -116,249 +238,329 @@ npm install
 npm run dev
 ```
 
-窗口底部输入文本并回车，后端会回一条 `agent.text`。后端地址可用 `VOB_CONTROL_URL` 环境变量覆盖。
-
-### GPT-SoVITS 推理服务
+窗口内可以输入文本并回车，后端会依次推送 `agent.text`、多个 `tts.ready`（按句分段，`segment_index` 递增）和音频 URL，桌面端边收边播。后端地址由 preload 注入，默认 `ws://127.0.0.1:8090/ws/control`，可用环境变量覆盖：
 
 ```powershell
-Set-Location docker\gpt-sovits
-docker compose up -d
-```
-
-### 测试
-
-```powershell
-Set-Location backend
-.\.venv\Scripts\python.exe -m pytest
-```
-
-### 端口和配置
-
-- FastAPI：`127.0.0.1:8090`
-- GPT-SoVITS API：`127.0.0.1:9880`
-- GPT-SoVITS WebUI：当前镜像存在 Gradio/Jinja2 兼容问题，默认不启动
-- Ollama：`127.0.0.1:11434`
-- ASR 模型路径、TTS 地址和音频目录可在 `backend/.env` 覆盖，模板见 `backend/.env.example`
-
-默认启动顺序：
-
-```powershell
-# 1. Ollama
-ollama serve
-
-# 2. GPT-SoVITS
-Set-Location docker\\gpt-sovits
-docker compose up -d
-
-# 3. FastAPI
-Set-Location ..\\..\\backend
-.\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8090
-
-# 4. Electron（另开终端）
-Set-Location ..\\apps\\desktop
+$env:VOB_CONTROL_URL = "ws://127.0.0.1:8090/ws/control"
 npm run dev
 ```
 
-## 目标架构
+Live2D 资源准备（可选；窗口内要看到角色才需要）：
 
-项目采用：
+- 仓库只带模型压缩包 `apps/desktop/src/renderer/public/live2d/mao_zh-Hans.zip`，解压后的资源写入被 `.gitignore` 忽略的 `apps/desktop/public/live2d/mao/`。
+- 从 Live2D Cubism SDK for Web 取得 `live2dcubismcore.min.js`（受 Live2D 许可约束，不入库），设置 `VOB_LIVE2D_CORE` 后运行准备脚本：
 
-- Modular Monolith：模块化单体
-- Layered Architecture：分层架构
-- Event-driven：事件驱动
-- Ports and Adapters：Ports and Adapters 架构
-
-```text
-┌─────────────────────────────────────────────────────────┐
-│ Electron Desktop                                         │
-│ UI / Live2D / Audio Input / Audio Output / User Actions  │
-└───────────────────────┬─────────────────────────────────┘
-                        │ Control WebSocket
-                        │ Optional Voice WebSocket
-┌───────────────────────▼─────────────────────────────────┐
-│ FastAPI Backend                                           │
-│ Transport / Session / Event Routing                       │
-└──────────┬──────────────┬──────────────┬────────────────┘
-           │              │              │
-┌──────────▼──────┐ ┌─────▼────────┐ ┌───▼────────────────┐
-│ Agent Core      │ │ Model Router │ │ Action Controller  │
-│ 决策与编排       │ │ 模型适配与选择 │ │ 动作校验与执行      │
-└──────────┬──────┘ └─────┬────────┘ └───────────────────┘
-           │              │
-┌──────────▼──────┐ ┌─────▼──────────────────────────────┐
-│ Memory          │ │ ASR / TTS / LLM / Vision / OCR     │
-│ 对话与长期记忆   │ │ Whisper / GPT-SoVITS / 其他模型适配器 │
-└─────────────────┘ └────────────────────────────────────┘
+```powershell
+$env:VOB_LIVE2D_CORE = "C:\path\to\live2dcubismcore.min.js"
+powershell -ExecutionPolicy Bypass -File scripts\prepare_live2d_assets.ps1
 ```
 
-## 输入与输出流程
+脚本会解压模型并复制 Core；之后 `npm run build` / `npm run dev`，控制器从 `live2d/mao/mao_pro.model3.json` 加载。缺少 Core 或模型时画布会提示加载失败，但控制通道、聊天和 TTS 不受影响。
 
-### 音频输入
+### 5. 端口一览
 
-```text
-麦克风 → VAD → ASR → Agent Core → LLM → TTS → 音频播放
+| 端口 | 服务 | 说明 |
+| --- | --- | --- |
+| `8090` | FastAPI 后端 | HTTP API + `ws://127.0.0.1:8090/ws/control` |
+| `9882` | IndexTTS-2.5 sidecar | 默认 TTS，`GET /health`、`POST /synthesize` |
+| `9880` | GPT-SoVITS | legacy 可选，`TTS_PROVIDER=gpt_sovits` 时使用 |
+| `11434` | Ollama | 对话模型 |
+| `5173` | Vite dev server | `npm run dev` 时的 Renderer |
+| `9872` | GPT-SoVITS WebUI | 仅 legacy 的 `webui` profile，默认不启动 |
+
+### 可选：ASR
+
+`POST /asr` 需要本地 faster-whisper 模型。默认路径是 `docker/gpt-sovits/models/asr_models/faster-whisper-large-v3`（相对 `backend/`），可用 `ASR_MODEL_PATH` 覆盖。缺失时后端仍能启动、文本聊天不受影响，但 `/asr` 会失败。下载脚本：
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\fetch_asr_model.py
 ```
 
-- VAD：检测用户是否正在说话
-- ASR：将语音转换为文本
-- `interrupt`：在用户重新说话或主动操作时中断当前回复
-- TTS：将回复文本转换为语音
+## 协议与会话恢复
 
-### 文本输入
+控制通道地址：
 
 ```text
-键盘文本 → Agent Core → LLM → TTS 或文本回复
+ws://127.0.0.1:8090/ws/control?protocol=vob/1&session_id=<可选>&after=<可选 seq>
 ```
 
-文本输入不经过 VAD 和 ASR。
-
-### 视频输入
+### 握手
 
 ```text
-摄像头/视频 → Video → Vision / OCR → State → Agent Core
+客户端                                      服务端
+  │ ── WebSocket /ws/control?... ─────────▶ │
+  │ ◀── server.ready ────────────────────── │  协议版本 + capabilities
+  │ ◀── （after 命中时）事件重放 ─────────── │  与实时通知同形，带 seq
+  │ ◀── session.opened ─────────────────── │  session_id / cursor / replayed
+  │ ── session.hydrate ───────────────────▶ │
+  │ ◀── session.state ──────────────────── │  权威快照
 ```
 
-视频应该先进行采样或抽帧，再交给 Vision 或 OCR 处理，避免持续把每一帧直接送入模型。
+- `server.ready` 的 `payload.capabilities` 给出可用方法、通知与特性（`replay`、`hydrate`、`session-persistence`、`history`）。
+- URL 带已有 `session_id` 且带 `after=N` 时，服务端按 `seq > N` 重放该会话账本事件，再发 `session.opened`；`replayed` 是本次重放条数。新建会话（不带 `session_id`）会忽略 `after`。
+- 不带 `session_id` 会新建会话；带不存在的 id 会收到 `error{code:"session_not_found"}` 并关闭连接。
+- 客户端发 `session.hydrate` 获得 `session.state`：transcript、turns、voice、character、`active_turn_id` 和 `cursor`。
+- 桌面端把 `session_id` 与 `cursor` 写入 `localStorage`（`vob.session_id` / `vob.cursor`），重连时回填 `session_id` + `after`；收到 `session_not_found` 会清掉本地 id 并新建会话。
 
-### 动作和角色表现
+### 命令与通知
+
+| 方向 | type |
+| --- | --- |
+| 客户端 → 服务端 | `session.open`、`session.hydrate`、`user.text`、`voice.select`、`tts.cancel`、`tts.finished` |
+| 服务端 → 客户端 | `server.ready`、`session.opened`、`session.state`、`turn.started`、`agent.text`、`tts.started`、`tts.ready`、`tts.failed`、`tts.cancelled`、`tts.finished`、`voice.selected`、`character.state`、`turn.completed`、`turn.cancelled`、`turn.error`、`error` |
+
+`tts.finished` 同时是命令与通知：客户端播放结束回报 `{tts_id}`，服务端把 `character.state` 投影回 `idle` 并广播。
+
+一次 `user.text` 的正常时序：
 
 ```text
-Agent Core → Action Controller → 外部设备或系统动作
-Agent Core → Emotion / State → Live2D 表情与动作
-Agent Core → TTS → 音频播放
+turn.started → character.state(thinking) → agent.text
+             → tts.started → tts.ready(segment 0..n) → character.state(speaking)
+             → turn.completed
+             → （客户端播放结束）tts.finished → character.state(idle)
 ```
 
-Agent Core 只负责决定行为，不直接操作设备。所有外部动作都经过 Action Controller 的注册、参数校验、执行和结果回传。
+同一会话同时最多一个 active turn。新的 `user.text` 会取消旧 turn：合成中会先发 `tts.cancelled{reason:"interrupted"}` 与 `turn.cancelled{reason:"interrupted"}`；如果旧 turn 已经完成、只剩音频在播，则只补 `tts.cancelled` 与 `character.state(idle)`。`tts.cancel` 只取消 TTS：若仍在合成，回合随后以 `turn.completed` 收尾；若已 `ready`，回合此前已完成，只补 `tts.cancelled` 与 `idle`。
 
-## 后端模块规划
-
-以下目录是目标布局，不代表当前仓库已经全部实现：
+### 持久化布局
 
 ```text
-backend/
-└─ app/
-   ├─ main.py                    # FastAPI 启动入口
-   ├─ transport/
-   │  ├─ control_ws.py           # 控制、状态和事件消息
-   │  └─ voice_ws.py             # 音频流通道
-   ├─ agent/
-   │  └─ agent_core.py           # Agent 决策和流程编排
-   ├─ models/
-   │  ├─ router.py               # Model Router
-   │  ├─ asr/                    # Whisper 等 ASR 适配器
-   │  ├─ tts/                    # GPT-SoVITS 等 TTS 适配器
-   │  ├─ llm/                    # 本地或远程 LLM 适配器
-   │  ├─ vision/                 # Vision 模型适配器
-   │  └─ ocr/                    # Tesseract / EasyOCR 适配器
-   ├─ memory/
-   │  ├─ reader.py               # 记忆读取
-   │  ├─ writer.py               # 记忆写入
-   │  └─ relationship.py         # Relationship 规划模块
-   ├─ actions/
-   │  ├─ registry.py             # Action 注册
-   │  ├─ validator.py            # Action 参数校验
-   │  └─ dispatcher.py           # Action 执行
-   ├─ state/
-   │  ├─ session.py              # 会话状态
-   │  └─ emotion.py              # 情绪状态
-   └─ workers/
-      ├─ audio.py                # 音频任务
-      └─ vision.py               # Vision / OCR 任务
+backend/runtime/
+├── audio/<audio_id>.wav                 # TTS 产物，GET /tts/{audio_id} 取回
+├── voices/
+│   ├── profiles.json                    # 用户克隆档案
+│   └── <voice_id>/reference.wav         # 规范化后的参考音频
+└── sessions/<session_id>/
+    ├── meta.json                        # session_id / created_at / persona / voice_id
+    ├── messages.jsonl                   # 已提交消息（append-only，含 audio_url 修订）
+    └── events.jsonl                     # 事件账本（seq/type/payload/ts/reply_to）
 ```
 
-## 前端目录规划
+- 先落盘账本再广播，保证「重放得到的 == 当时发出的」。
+- 单会话事件上限默认 2000，超出从最旧裁剪；裁剪只影响 replay，hydrate 从 messages 重建 transcript。
+- 会话 id 只允许 `[A-Za-z0-9_-]{1,64}`，目录名直接使用该 id，禁止路径穿越。
+
+字段级定义、错误码与重放细节见 [`shared/contracts/protocol.md`](shared/contracts/protocol.md)；已实现/未实现覆盖与 v1 差异见 [`docs/PROTOCOL_COVERAGE.md`](docs/PROTOCOL_COVERAGE.md)。
+
+## 音色与克隆
+
+### 内置音色
+
+`backend/config/voices.json` 内置 `murasame`（丛雨）：
+
+```json
+{
+  "id": "murasame",
+  "display_name": "丛雨",
+  "language": "ZH",
+  "reference_audio": "assets/voices/murasame/murasame_ref.wav",
+  "duration_factor": 1.0,
+  "builtin": true
+}
+```
+
+参考音频路径相对**仓库根**解析；用户档案优先于同名内置档案。
+
+### HTTP 接口
 
 ```text
-apps/desktop/
-├─ main/                         # Electron 主进程
-├─ preload/                      # 安全 IPC 桥接
-└─ renderer/
-   ├─ ui/                        # 页面和交互组件
-   ├─ live2d/                    # Live2D 加载、表情和动作
-   ├─ audio/                     # 录音、播放和打断
-   └─ transport/                 # WebSocket 客户端
+GET    /voices                 列出音色与 default_voice_id
+POST   /voices                 上传参考音频克隆音色（multipart: name, audio, language）
+PATCH  /voices/{voice_id}      重命名用户克隆音色 {display_name}（内置音色 409）
+GET    /voices/{voice_id}/sample 试听参考音频（audio/wav）
+DELETE /voices/{voice_id}      删除用户克隆音色（内置音色 409）
+GET    /sessions               已持久化会话列表（标题/消息数/最近活动）
+GET    /memory                 长期记忆与关系状态
+POST   /memory/notes           添加备注 {text, kind?}
+DELETE /memory/notes/{note_id} 删除备注（204/404）
+PATCH  /memory/user            修改称呼 {name}
+POST   /tts                    单次合成 {text, voice_id?}，返回 audio/wav
+GET    /tts/{audio_id}         取回已保存的 WAV
 ```
 
-Renderer 负责界面和角色表现；模型调用、Memory、Action 和设备控制由后端负责。
+克隆示例：
 
-## 前后端协议规划
-
-协议统一放在 `shared/contracts/`，前后端不应该各自猜测消息字段。
-
-```text
-shared/
-└─ contracts/
-   ├─ control-message.schema.json
-   ├─ action.schema.json
-   └─ protocol.md
+```powershell
+curl.exe -X POST http://127.0.0.1:8090/voices `
+  -F "name=我的声音" `
+  -F "language=ZH" `
+  -F "audio=@C:\path\to\reference.wav"
 ```
 
-控制消息至少需要支持：
+成功返回 `201` 与音色对象；后端用 PyAV 解码并规范化为 16-bit 单声道 WAV，时长必须在 **1–60 秒**。`POST /voices` 失败返回 `400`（无法解码、时长越界、语种不支持）或 `422`（缺少 multipart 字段）；`DELETE /voices/{voice_id}` 返回 `204`，删除内置音色为 `409`，不存在为 `404`。
 
-- 用户文本输入
-- ASR 中间结果和最终结果
-- Agent 回复文本
-- TTS 播放状态
-- 情绪和 Live2D 状态
-- Action 请求和 Action 结果
-- 错误、取消和超时
+细节与请求/响应示例见 [`docs/VOICE_CLONING.md`](docs/VOICE_CLONING.md)。
 
-语音数据可以使用独立的 Voice WebSocket，避免音频流阻塞控制消息。普通控制消息使用 JSON；语音通道的具体音频格式需要在协议文档中明确。
+### WebSocket 选音色
 
-## MVP 开发顺序
+发送：
 
-### Phase 1：基础通信
-
-- Electron 启动
-- FastAPI 启动
-- Electron 与 FastAPI 建立 WebSocket
-- 文本消息发送和接收
-
-### Phase 2：最小对话闭环
-
-```text
-文本/麦克风 → ASR → LLM → TTS → Electron 播放
+```json
+{ "protocol": "vob/1", "id": "...", "ts": 0, "type": "voice.select", "payload": { "voice_id": "murasame" } }
 ```
 
-先接入一个 ASR、一个 LLM 和一个 TTS，不同时实现多个模型供应商。
+服务端校验后更新会话 `meta.json.voice_id` 并广播 `voice.selected{voice_id, display_name}`；未知音色回 `error{code:"voice_not_found"}`，连接保持。该选择立即影响下一次合成。
 
-当前实现已包含文本到语音、音频上传到 ASR 的接口和桌面录音交互；ASR→对话→TTS 的接口链路已在本机通过生成音频完成检查。真实麦克风采集、Electron 播放和取消仍待本地验收。
+### 参考音频要求
 
-### Phase 3：角色表现
+- 1–60 秒、单人、干净人声，尽量无背景音乐、混响和噪声。
+- 16-bit PCM 单声道 WAV 最稳妥；MP3/M4A/OGG 等也可，后端会解码并统一为 44.1kHz（WAV 源保留原采样率）。
+- 不需要和合成文本同语言：音色由参考音频决定，发音语言由音色档案的 `language`（`ZH`/`EN`/`JA`/`ES`/`AR`）决定。
+- 参考音频只用于零样本克隆，不用于训练；上传前必须确认你拥有声音本人的授权。
 
-- Live2D 渲染、示例动作/表情控件已接入；当前使用 Mao PRO 示例模型完成加载与控件验证
-- TTS 期间的 `ParamA` 口型状态代码已接入，待 Electron 音频播放验收
-- 丛雨专属 Live2D 资源、正式表情映射和自然口型同步仍待完成
-- 情绪状态
-- 用户打断
-- 字幕显示
+### 情感与语速
 
-### Phase 4：扩展能力
+音色档案支持 `emotion` 与 `duration_factor` 默认值（写在 `backend/config/voices.json` 或 `backend/runtime/voices/profiles.json`；当前 HTTP 克隆接口不暴露这两个字段）。
 
-- Vision
-- OCR
-- Video 抽帧
-- Memory
-- Relationship
-- Action Controller
-- 外部设备控制
+- IndexTTS 情感向量固定 **8 维**，顺序为 **喜、怒、哀、惧、厌恶、低落、惊喜、平静**；每维 0–1，**总和必须 ≤ 0.8**。`alpha` 是情感强度，0–1。
+- `emotion.mode` 可为 `vector` / `text` / `audio`。当前 `checkpoints` 与 `checkpoints_murasama` 都没有 QwenEmotion 资源，`text` 模式会被 sidecar 以 400 拒绝（后端表现为 `tts.failed`）；`vector` 与 `audio` 可用。
+- `duration_factor` 范围 **0.5–2.0**，默认 1.0；小于 1 更快，大于 1 更慢。
 
-如果后续要实现类似持续运行的虚拟角色，再增加 `World` 模块，负责时间、环境、角色状态和主动行为；不要把持续生活循环直接塞进 `Agent Core`。
+### 切换 base / 微调权重
 
-## 参考项目
+```powershell
+# 原始 IndexTTS-2.5 权重（默认）
+powershell -ExecutionPolicy Bypass -File scripts\start_indextts.ps1 -ModelDir checkpoints
 
-- [my-neuro](https://github.com/morettt/my-neuro)：参考桌面虚拟角色、Live2D、语音、视觉、长期记忆和情绪功能范围。
-- [neuro-sdk](https://github.com/VedalAI/neuro-sdk)：参考 WebSocket 协议、Action 注册、Action Schema、参数校验和 Action Result。
-- [yuiju](https://github.com/yixiaojiu/yuiju)：参考 `World`、`Message`、`Memory`、`Web` 的职责分离，以及持续运行角色的设计思路。
+# 丛雨微调权重（目录结构相同，端口示例 9885）
+powershell -ExecutionPolicy Bypass -File scripts\start_indextts.ps1 -ModelDir checkpoints_murasama -Port 9885
+```
 
-本项目只选择性借鉴这些项目的边界和协议设计，不直接复制其部署方式或全部基础设施。
+切到 9885 后，后端 `.env` 需要同步：
 
-## 开发原则
+```dotenv
+INDEX_TTS_BASE_URL=http://127.0.0.1:9885
+```
 
-- Electron Renderer 不直接调用模型服务。
-- Agent Core 不直接操作外部设备。
-- 模型通过统一 Adapter 接入，由 Model Router 负责选择。
-- Action 必须有明确的名称、描述、参数结构和执行结果。
-- 长期记忆和当前会话状态分开保存。
-- Vision 和 Video 任务采用抽帧或异步 Worker，避免阻塞 WebSocket。
-- 尚未实现的功能在文档中标记为规划，不提前宣称完成。
+两个目录各自带 `config.yaml` 与 `hf_cache/`，不要混用文件。微调权重仍需参考音频做零样本克隆；音色相似度是否优于 base 权重取决于微调数据质量，不要把「微调」当成「免参考音频」。
+
+## 测试
+
+```powershell
+# 后端 132 tests + ruff
+backend\.venv\Scripts\python.exe -m pytest backend -q
+backend\.venv\Scripts\python.exe -m ruff check backend\app backend\tests services\indextts_service
+
+# IndexTTS sidecar 56 tests（不需要 GPU/torch）
+backend\.venv\Scripts\python.exe -m pytest services\indextts_service\tests -q
+
+# 桌面 typecheck / build
+Set-Location apps\desktop
+npm run typecheck
+npm run build
+
+# 端到端 smoke（需先启动 sidecar + 后端 + Ollama）
+# sidecar 可用 scripts\start_indextts.ps1 -Mock 做无 GPU 联调
+backend\.venv\Scripts\python.exe scripts\e2e_ws_smoke.py
+
+# Electron 渲染截图（可选，需先准备 Live2D 资源）
+# 1) 静态服务 out/renderer；2) 用本地 Electron 截图
+python -m http.server 4173 --bind 127.0.0.1 --directory out\renderer
+node_modules\electron\dist\electron.exe ..\scripts\capture_ui.cjs
+```
+
+说明：
+
+- `backend\.venv` 里有 fastapi/httpx/pytest/ruff/av，但**没有 torch**，不能用来加载真实 IndexTTS。
+- sidecar 测试全部用 MockEngine 与 `httpx.MockTransport`，不依赖 GPU。
+- 真实 GPU 合成、HTTP `/tts`、`/voices` 与 WebSocket 全链路属于端到端验证，不在默认测试集内。
+
+## 排障
+
+### 8GB 显存争用（IndexTTS 与 Ollama）
+
+IndexTTS-2.5 与 `qwen3:8b` 同时占 GPU 时，8GB 显存会明显变慢，甚至 OOM。优先让 LLM 走 CPU：
+
+```dotenv
+OLLAMA_NUM_GPU=0
+OLLAMA_NUM_CTX=4096
+```
+
+- `OLLAMA_NUM_GPU` 不设置时由 Ollama 自动分配；设为 `0` 强制 CPU。设为 `0` 后 LLM 首字会变慢，但 TTS 更稳定。
+- 不建议为了「更快」把 `OLLAMA_NUM_CTX` 调大：Ollama 默认上下文可能分配过大的 KV cache，本项目显式使用 4096。
+- 合成期间关闭其他占用显存的程序（Stable Diffusion、其他推理服务、游戏）。
+- 如果 TTS 报 `tts_unavailable` / `model_loading` / 超时，先看 sidecar `/health` 的 `loaded` 与终端日志。
+
+### `httpx` 代理环境变量导致 `InvalidURL`
+
+后端在 `app/main.py` 创建 `httpx.AsyncClient` 时显式使用 `trust_env=False`。如果你在本机设置了 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`，httpx 0.28 在解析 `NO_PROXY` 时可能抛 `InvalidURL`。不要通过删除 `trust_env=False` 来「修复」；新增的 httpx 客户端也应显式关闭环境代理，或确保代理变量与 `NO_PROXY` 一致。
+
+### Windows 沙箱：index-tts venv 只能写 `default-workspace`
+
+本机 DSH 沙箱限制下，index-tts 虚拟环境的解释器只能写 `default-workspace` 内的路径。因此：
+
+- sidecar 不向仓库目录写文件；推理临时 WAV 写到 `INDEXTTS_WORK_DIR`（默认 `<INDEXTTS_HOME>\.runtime\indextts_service`），读取后立即删除。
+- `scripts/start_indextts.ps1` 把 `TEMP`/`TMP`、`HF_HOME`、`TORCH_HOME`、`INDEXTTS_WORK_DIR` 都重定向到 `<INDEXTTS_HOME>\.runtime\`。
+- 不要把 `INDEXTTS_WORK_DIR` 指向仓库、系统临时目录或其他受限路径，否则可能被沙箱拒绝。
+- 遇到 `Permission denied` / `Access is denied` 时，先确认 `INDEXTTS_HOME` 在可写工作区内。
+
+### ASR 模型缺失
+
+`/asr` 使用 `ASR_MODEL_PATH`，默认指向 `docker/gpt-sovits/models/asr_models/faster-whisper-large-v3`。模型缺失时：
+
+- 后端仍能启动，文本聊天与 TTS 不受影响；
+- `POST /asr` 失败（转写层抛 `AsrUnavailable`），桌面端显示录音失败；
+- 运行 `backend\.venv\Scripts\python.exe scripts\fetch_asr_model.py` 下载，或把 `ASR_MODEL_PATH` 指向已有的 CTranslate2 模型目录；
+- 默认 `ASR_DEVICE=cpu`、`ASR_COMPUTE_TYPE=int8`，不依赖主机 CUDA 库；改用 GPU 需要 CUDA 12.x 与对应 cuDNN。
+
+### Sidecar 起不来、一直 503 或请求排队
+
+- `/health` 的 `loaded=false` 且 `/synthesize` 返回 `503 model_loading`：模型仍在加载，用 `wait_for_indextts.ps1` 等待；加载失败会打印 traceback 并以非零码退出。
+- `start_indextts.ps1` 提示缺少 `config.yaml` / `gpt.pth` / `s2mel.pth` / `codec.pth`：`-ModelDir` 指错了，或模型未下载完整。
+- 提示找不到解释器：必须使用 `<INDEXTTS_HOME>\.venv\Scripts\python.exe`，不要用 `backend\.venv`（没有 torch）。
+- 端口冲突：默认 9882；换端口时同步 `INDEX_TTS_BASE_URL`。
+- **合成超时后下一句一直排队**：sidecar 用一把全局锁串行「加载 + 推理」，单卡不会并发推理。sidecar 侧超时（默认 180s）会返回 `500 synthesis_failed`，但推理线程无法被中止，锁会一直持有到该次推理真正结束，后续请求在锁上排队。后端/客户端先超时也不会让它开始第二次推理。处理方式：等当前推理结束或重启 sidecar；同时缩短回复（后端已截断到 300 字）、关闭其他 GPU 程序，并让 Ollama 走 CPU（`OLLAMA_NUM_GPU=0`）。
+
+### 协议/连接问题
+
+- `protocol_mismatch`：URL 的 `protocol` 或消息信封的 `protocol` 字段存在但不是 `vob/1`。连接会以 close code `1008` 关闭；字段**缺失**属于 `invalid_message`。
+- `session_not_found`：本地保存的会话已被清理；桌面端会自动新建。也可以在连接 URL 中去掉 `session_id`。
+- `invalid_message`：JSON 非法、payload 多余字段、空文本、非法 `session_id`/`after` 等。
+- `unsupported_type`：把服务端通知（如 `agent.text`）当成命令发给了服务端。
+- CORS：后端只放行 `Origin: null`（Electron `file://`）与 `http://127.0.0.1|localhost:*`。改用其他主机名/端口访问时，需要同步调整 `backend/app/main.py` 的 `allow_origin_regex`，不要直接改成 `*`。
+- 连不上 `8090`：确认 uvicorn 已启动、端口未被占用、Windows 防火墙未拦截本机回环。
+
+### 参考音频/克隆失败
+
+- `400 参考音频时长必须在 1–60 秒之间`：裁剪或补足音频。
+- `400 无法解码参考音频`：换 WAV/MP3 等常见格式；损坏文件或非音频文件会被拒绝。
+- `409 内置音色不可删除`：`murasame` 由 `backend/config/voices.json` 提供，只能删除用户克隆档案。
+- 克隆成功但合成不像：参考音频太短、噪声大、混响重，或音色档案的 `language` 与你要合成的语言不一致。先用较干净的单人片段（5–15 秒）验证。
+
+## 已知限制
+
+- **Electron 窗口内的播放、停止、克隆面板交互未自动验证**；本文不宣称这些 UI 行为已经验收。
+- Live2D 解压后的模型与 Cubism Core 不随仓库分发（`apps/desktop/public/live2d/` 被忽略）；用 `scripts/prepare_live2d_assets.ps1` 准备。缺少资源时角色画布不可用，但协议与 TTS 链路不受影响。
+- 仅 Mao 示例模型用于加载/动作/表情验证；丛雨专属 Live2D、正式表情映射与精细口型未完成。口型已接 Web Audio 振幅驱动 `ParamA`，缺失分析器时退回合成动画。
+- Memory 进阶（自动抽取/向量检索/长期关系）未实现；Memory MVP 已接入（显式指令 + 关系值）。Vision / OCR / Action Controller / World 未实现。
+- 复杂情绪建模/长期情绪未实现；Agent 的情绪标签已接入 `character.state.emotion`（可能为 `null`）。
+- 无 VAD、实时音频流；TTS 为分句级流式（逐句 WAV 就绪即播），不是网络级流式。
+- IndexTTS sidecar 单卡串行；合成超时不会中止推理线程，后续请求会排队（见「排障」）。
+- 单会话同时只允许一个 active turn；一个连接同一时刻只绑定一个会话，但可通过 `session.open` 切换，桌面端提供会话列表与“新会话”。
+- 事件不做 WAL/事务恢复；进程崩溃可能丢最后一条正在写的行，JSONL 加载器会丢弃末尾半行并记录日志。
+- 会话事件上限 2000，超出后 replay 无法回到更早事件；transcript 仍从 messages 重建。
+- 不做 LLM 摘要压缩，只做历史窗口裁剪（默认最近 12 条 / 4000 字符）。
+- GPT-SoVITS 训练流程不搬入本仓库；legacy 推理仍依赖原 Docker 镜像与本地权重。
+- 8GB 显存下 IndexTTS 与 Ollama 同时占 GPU 会显著变慢；建议 `OLLAMA_NUM_GPU=0`。
+
+## 许可与授权
+
+- **项目代码**：本仓库为 MIT（见 `LICENSE`）。
+- **IndexTTS-2.5**：模型与推理代码来自上游 index-tts 项目，使用前请阅读其仓库与模型卡许可；本仓库不重新分发模型权重。`services/indextts_service` 只是本地 sidecar 封装。
+- **GPT-SoVITS（legacy）**：镜像、预训练/微调权重与数据集各自受上游许可约束；本仓库不携带权重。训练数据审计见 [`docs/murasame-dataset-audit.md`](docs/murasame-dataset-audit.md)。
+- **参考音频与声音克隆**：只能使用你拥有授权的声音。未经本人同意克隆真实人物声音可能违法或违反平台条款。`assets/voices/README.md` 记录目录约定与授权要求；用户上传的参考音频保存在 `backend/runtime/voices/`（git 忽略）。
+- **Live2D**：Cubism Core / SDK 受 Live2D 许可约束；示例模型受其压缩包内的 Free Material License Agreement 与 Terms of Use 约束。模型与 Core 不随仓库分发，使用前自行确认许可。
+- **角色与素材**：丛雨及相关作品素材的权利归原权利人；本仓库仅用于本地技术原型，不用于商业分发。
+
+## 相关文档
+
+- [`docs/ARCHITECTURE_V2.md`](docs/ARCHITECTURE_V2.md)：v2 架构定稿、目录、持久化、错误码、CORS、Ollama 参数与限制。
+- [`docs/PROTOCOL_COVERAGE.md`](docs/PROTOCOL_COVERAGE.md)：已实现命令/通知、未实现能力、与 v1 的差异、与 octos-ts 设计的关系。
+- [`docs/VOICE_CLONING.md`](docs/VOICE_CLONING.md)：克隆流程、sidecar API、音色档案字段、情感/语速、base vs 微调、许可。
+- [`shared/contracts/protocol.md`](shared/contracts/protocol.md)：`vob/1` 字段级协议。
+- [`services/indextts_service/README.md`](services/indextts_service/README.md)：sidecar 环境变量、API 与 Mock 模式。
+- [`docker/gpt-sovits/README.md`](docker/gpt-sovits/README.md)：legacy GPT-SoVITS 的容器路径映射。
+
+---
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

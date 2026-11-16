@@ -32,6 +32,7 @@ export class Live2DController {
   private model: InstanceType<typeof Live2DModelType> | null = null
   private live2DModelClass: typeof Live2DModelType | null = null
   private speaking = false
+  private mouthLevel = 0
 
   async mount(canvas: HTMLCanvasElement): Promise<void> {
     if (this.app) return
@@ -75,7 +76,15 @@ export class Live2DController {
 
   setSpeaking(speaking: boolean): void {
     this.speaking = speaking
+    if (!speaking) {
+      this.mouthLevel = 0
+    }
     this.updateMouth()
+  }
+
+  /** 0..1 的实时音频振幅；0 时回退到轻量合成动画，保证播放时有口型。 */
+  setMouthLevel(level: number): void {
+    this.mouthLevel = Math.min(1, Math.max(0, level))
   }
 
   async playExampleMotion(): Promise<boolean> {
@@ -105,10 +114,13 @@ export class Live2DController {
     const index = core.getParameterIndex(LIP_SYNC_PARAMETER_ID)
     if (index < 0) return
 
-    const value = this.speaking
-      ? core.getParameterMaximumValue(index)
-      : core.getParameterDefaultValue(index)
-    core.setParameterValueByIndex(index, value, 1)
+    const fallback = this.speaking
+      ? 0.12 + 0.12 * Math.max(0, Math.sin(Date.now() / 70))
+      : 0
+    const level = this.speaking ? Math.max(this.mouthLevel, fallback) : 0
+    const defaultValue = core.getParameterDefaultValue(index)
+    const maxValue = core.getParameterMaximumValue(index)
+    core.setParameterValueByIndex(index, defaultValue + (maxValue - defaultValue) * level, 1)
   }
 
   private readonly fit = (): void => {

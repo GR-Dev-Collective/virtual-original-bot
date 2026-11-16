@@ -9,41 +9,97 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app.agent.agent_core import AgentCore
 from app.config import settings
+from app.memory.store import MemoryStore
 from app.models.asr.faster_whisper import FasterWhisperAsr
 from app.models.llm.ollama import OllamaChat
 from app.models.tts.audio_store import AudioStore
-from app.models.tts.gpt_sovits import GptSovitsTts
+from app.models.tts.factory import build_tts_provider
+from app.runtime.runtime import CharacterRuntime
+from app.session.store import SessionStore
 from app.transport.control_ws import router as control_router
+from app.transport.memory_http import router as memory_router
+from app.transport.sessions_http import router as sessions_router
 from app.transport.tts_http import router as tts_router
 from app.transport.voice_http import router as voice_router
+from app.transport.voices_http import router as voices_router
+from app.voices.registry import VoiceRegistry
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    async with httpx.AsyncClient(timeout=settings.ollama_timeout_seconds) as client:
-        app.state.agent = AgentCore(
-            OllamaChat(settings.ollama_base_url, settings.ollama_model, client)
+    # trust_env=False：本机代理环境变量会让 httpx 0.28 解析 NO_PROXY 时抛 InvalidURL。
+    async with httpx.AsyncClient(
+        timeout=settings.ollama_timeout_seconds,
+        trust_env=False,
+    ) as client:
+        agent = AgentCore(
+            OllamaChat(
+                settings.ollama_base_url,
+                settings.ollama_model,
+                client,
+                num_ctx=settings.ollama_num_ctx,
+                num_gpu=settings.ollama_num_gpu,
+            )
         )
-        app.state.tts = GptSovitsTts(
-            settings.gpt_sovits_base_url,
-            client,
-            timeout=settings.gpt_sovits_timeout_seconds,
+        tts_provider = build_tts_provider(settings, client)
+        voices = VoiceRegistry(
+            settings.voice_profiles_path,
+            settings.user_voice_directory,
+            default_voice_id=settings.default_voice_id,
         )
-        app.state.audio_store = AudioStore(settings.audio_directory)
+        audio_store = AudioStore(settings.audio_directory)
+        memory = MemoryStore(settings.memory_directory)
+        store = SessionStore(
+            settings.session_directory,
+            event_limit=settings.session_event_limit,
+        )
+
+        app.state.agent = agent
+        app.state.tts = tts_provider
+        app.state.tts_provider = tts_provider
+        # 兼容既有脚本/测试里的旧属性名。
+        app.state.tts_port = tts_provider
+        app.state.voices = voices
+        app.state.memory = memory
+        app.state.audio_store = audio_store
+        app.state.runtime = CharacterRuntime(
+            store=store,
+            agent=agent,
+            tts=tts_provider,
+            audio_store=audio_store,
+            voices=voices,
+            memory=memory,
+            history_max_messages=settings.history_max_messages,
+            history_max_chars=settings.history_max_chars,
+        )
         app.state.asr = FasterWhisperAsr(
             settings.asr_model_path,
             device=settings.asr_device,
             compute_type=settings.asr_compute_type,
         )
-        yield
+        try:
+            yield
+        finally:
+            await app.state.runtime.shutdown()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="virtual-original-bot backend", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="virtual-original-bot backend", version="0.2.0", lifespan=lifespan)
+
+    # Renderer 在 Electron（file:// → Origin: null）或 Vite dev（127.0.0.1:5173）
+    # 下跨源访问 /voices、/asr、/tts；只放行本机来源，不开放任意远端。
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["null"],
+        allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$",
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -61,6 +117,9 @@ def create_app() -> FastAPI:
     app.include_router(control_router)
     app.include_router(tts_router)
     app.include_router(voice_router)
+    app.include_router(voices_router)
+    app.include_router(sessions_router)
+    app.include_router(memory_router)
     return app
 
 

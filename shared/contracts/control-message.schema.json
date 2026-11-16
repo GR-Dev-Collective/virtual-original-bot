@@ -2,14 +2,14 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://virtual-original-bot/shared/contracts/control-message.schema.json",
   "title": "ControlMessage",
-  "description": "控制通道（/ws/control）上传输的消息信封。前端 TS 类型与后端 pydantic 模型必须与本 schema 保持一致。",
+  "description": "控制通道（/ws/control）vob/1 消息信封。命令（客户端→服务端）与通知（服务端→客户端）共用同一信封，payload 形状由 type 唯一决定；tts.finished 同时是命令与通知。后端 pydantic 模型与前端 TypeScript 类型必须与本 schema 保持一致；所有 payload 都是 additionalProperties:false。",
   "type": "object",
-  "required": ["type", "id", "ts", "payload"],
+  "required": ["protocol", "id", "ts", "type", "payload"],
   "additionalProperties": false,
   "properties": {
-    "type": {
-      "description": "消息类型，决定 payload 的形状。",
-      "enum": ["session.ready", "user.text", "agent.text", "tts.started", "tts.ready", "tts.cancel", "tts.cancelled", "error"]
+    "protocol": {
+      "description": "协议版本，固定为 vob/1。",
+      "const": "vob/1"
     },
     "id": {
       "description": "本条消息的唯一标识，由发送方生成。",
@@ -21,6 +21,42 @@
       "type": "integer",
       "minimum": 0
     },
+    "type": {
+      "description": "消息类型，决定 payload 的形状。tts.finished 既可作客户端命令（播放结束回报），也可作服务端通知（广播）。",
+      "type": "string",
+      "enum": [
+        "server.ready",
+        "session.opened",
+        "session.state",
+        "turn.started",
+        "agent.text",
+        "tts.started",
+        "tts.ready",
+        "tts.failed",
+        "tts.cancelled",
+        "tts.finished",
+        "voice.selected",
+        "character.state",
+        "turn.completed",
+        "turn.cancelled",
+        "turn.error",
+        "error",
+        "session.open",
+        "session.hydrate",
+        "user.text",
+        "voice.select",
+        "tts.cancel"
+      ]
+    },
+    "reply_to": {
+      "description": "触发本通知的入站消息 id；连接级消息可省略。",
+      "type": ["string", "null"]
+    },
+    "seq": {
+      "description": "服务端通知在会话事件账本中的位置（从 1 单调递增）；命令与连接级消息（server.ready/session.opened/session.state/error）不带 seq。",
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
     "payload": {
       "description": "消息体，形状由 type 决定。",
       "type": "object"
@@ -28,125 +64,256 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "type": { "const": "session.ready" } } },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/definitions/sessionReadyPayload" }
-        }
-      }
+      "if": { "properties": { "type": { "const": "server.ready" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/serverReadyPayload" } } }
     },
     {
-      "if": { "properties": { "type": { "const": "user.text" } } },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/definitions/userTextPayload" }
-        }
-      }
+      "if": { "properties": { "type": { "const": "session.opened" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/sessionOpenedPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "session.state" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/sessionStatePayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "turn.started" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/turnStartedPayload" } } }
     },
     {
       "if": { "properties": { "type": { "const": "agent.text" } } },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/definitions/agentTextPayload" }
-        }
-      }
+      "then": { "properties": { "payload": { "$ref": "#/definitions/agentTextPayload" } } }
     },
     {
       "if": { "properties": { "type": { "const": "tts.started" } } },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/definitions/ttsStartedPayload" }
-        }
-      }
+      "then": { "properties": { "payload": { "$ref": "#/definitions/ttsStartedPayload" } } }
     },
     {
       "if": { "properties": { "type": { "const": "tts.ready" } } },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/definitions/ttsReadyPayload" }
-        }
-      }
+      "then": { "properties": { "payload": { "$ref": "#/definitions/ttsReadyPayload" } } }
     },
     {
-      "if": { "properties": { "type": { "const": "tts.cancel" } } },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/definitions/ttsCancelPayload" }
-        }
-      }
+      "if": { "properties": { "type": { "const": "tts.failed" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/ttsFailedPayload" } } }
     },
     {
       "if": { "properties": { "type": { "const": "tts.cancelled" } } },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/definitions/ttsCancelledPayload" }
-        }
-      }
+      "then": { "properties": { "payload": { "$ref": "#/definitions/ttsCancelledPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "tts.finished" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/ttsFinishedPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "voice.selected" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/voiceSelectedPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "character.state" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/characterStatePayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "turn.completed" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/turnCompletedPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "turn.cancelled" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/turnCancelledPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "turn.error" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/turnErrorPayload" } } }
     },
     {
       "if": { "properties": { "type": { "const": "error" } } },
-      "then": {
-        "properties": {
-          "payload": { "$ref": "#/definitions/errorPayload" }
-        }
-      }
+      "then": { "properties": { "payload": { "$ref": "#/definitions/errorPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "session.open" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/sessionOpenPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "session.hydrate" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/sessionHydratePayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "user.text" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/userTextPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "voice.select" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/voiceSelectPayload" } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "tts.cancel" } } },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/ttsCancelPayload" } } }
     }
   ],
   "definitions": {
-    "sessionReadyPayload": {
+    "capabilities": {
       "type": "object",
-      "required": ["session_id"],
+      "required": ["methods", "notifications", "features"],
       "additionalProperties": false,
       "properties": {
-        "session_id": { "type": "string", "minLength": 1 }
+        "methods": { "type": "array", "items": { "type": "string" } },
+        "notifications": { "type": "array", "items": { "type": "string" } },
+        "features": { "type": "array", "items": { "type": "string" } }
       }
     },
-    "userTextPayload": {
+    "serverReadyPayload": {
       "type": "object",
-      "required": ["text"],
+      "required": ["protocol_version", "capabilities"],
       "additionalProperties": false,
       "properties": {
-        "text": { "type": "string", "minLength": 1 }
+        "protocol_version": { "type": "string", "minLength": 1 },
+        "capabilities": { "$ref": "#/definitions/capabilities" }
+      }
+    },
+    "sessionOpenedPayload": {
+      "type": "object",
+      "required": ["session_id", "cursor", "replayed", "voice_id"],
+      "additionalProperties": false,
+      "properties": {
+        "session_id": { "type": "string", "minLength": 1 },
+        "cursor": { "type": "integer", "minimum": 0 },
+        "replayed": { "type": "integer", "minimum": 0 },
+        "voice_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "messageView": {
+      "type": "object",
+      "required": ["id", "seq", "role", "text", "ts"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "seq": { "type": "integer", "minimum": 1 },
+        "role": { "type": "string", "enum": ["user", "assistant"] },
+        "text": { "type": "string" },
+        "ts": { "type": "integer", "minimum": 0 },
+        "audio_url": { "type": ["string", "null"] },
+        "turn_id": { "type": ["string", "null"] },
+        "reply_to": { "type": ["string", "null"] }
+      }
+    },
+    "turnView": {
+      "type": "object",
+      "required": ["turn_id", "reply_to", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "turn_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 },
+        "status": {
+          "type": "string",
+          "enum": ["active", "completed", "cancelled", "error"]
+        },
+        "started_seq": { "type": ["integer", "null"], "minimum": 1 },
+        "ended_seq": { "type": ["integer", "null"], "minimum": 1 },
+        "tts_id": { "type": ["string", "null"] },
+        "audio_url": { "type": ["string", "null"] }
+      }
+    },
+    "voiceState": {
+      "type": "object",
+      "required": ["voice_id"],
+      "additionalProperties": false,
+      "properties": {
+        "voice_id": { "type": "string", "minLength": 1 },
+        "display_name": {
+          "description": "展示名；hydrate 快照中当前为 null，voice.selected 或 /voices 提供展示名。",
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "characterStatePayload": {
+      "type": "object",
+      "required": ["phase"],
+      "additionalProperties": false,
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": ["idle", "thinking", "speaking", "error"]
+        },
+        "emotion": {
+          "description": "情绪状态机预留字段；当前实现恒为 null。",
+          "type": ["string", "null"]
+        },
+        "tts_id": { "type": ["string", "null"] },
+        "audio_url": { "type": ["string", "null"] }
+      }
+    },
+    "sessionStatePayload": {
+      "type": "object",
+      "required": ["session_id", "cursor", "messages", "turns", "voice", "character"],
+      "additionalProperties": false,
+      "properties": {
+        "session_id": { "type": "string", "minLength": 1 },
+        "cursor": { "type": "integer", "minimum": 0 },
+        "messages": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/messageView" }
+        },
+        "turns": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/turnView" }
+        },
+        "voice": { "$ref": "#/definitions/voiceState" },
+        "character": { "$ref": "#/definitions/characterStatePayload" },
+        "active_turn_id": { "type": ["string", "null"] }
+      }
+    },
+    "turnStartedPayload": {
+      "type": "object",
+      "required": ["turn_id", "reply_to"],
+      "additionalProperties": false,
+      "properties": {
+        "turn_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 }
       }
     },
     "agentTextPayload": {
       "type": "object",
-      "required": ["text", "reply_to"],
+      "required": ["text", "reply_to", "message_id"],
       "additionalProperties": false,
       "properties": {
         "text": { "type": "string" },
-        "reply_to": {
-          "description": "所回应的 user.text 消息的 id。",
-          "type": "string",
-          "minLength": 1
-        }
+        "reply_to": { "type": "string", "minLength": 1 },
+        "message_id": { "type": "string", "minLength": 1 },
+        "audio_url": { "type": ["string", "null"] }
       }
     },
     "ttsStartedPayload": {
       "type": "object",
-      "required": ["tts_id", "reply_to"],
-      "additionalProperties": false,
-      "properties": {
-        "tts_id": { "type": "string", "minLength": 1 },
-        "reply_to": { "type": "string", "minLength": 1 }
-      }
-    },
-    "ttsReadyPayload": {
-      "type": "object",
-      "required": ["tts_id", "reply_to", "audio_url"],
+      "required": ["tts_id", "reply_to", "voice_id"],
       "additionalProperties": false,
       "properties": {
         "tts_id": { "type": "string", "minLength": 1 },
         "reply_to": { "type": "string", "minLength": 1 },
-        "audio_url": { "type": "string", "minLength": 1 }
+        "voice_id": { "type": "string", "minLength": 1 }
       }
     },
-    "ttsCancelPayload": {
+    "ttsReadyPayload": {
       "type": "object",
-      "required": ["tts_id"],
+      "required": ["tts_id", "reply_to", "voice_id", "audio_url", "segment_index", "segment_count", "final"],
       "additionalProperties": false,
       "properties": {
-        "tts_id": { "type": "string", "minLength": 1 }
+        "tts_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 },
+        "voice_id": { "type": "string", "minLength": 1 },
+        "audio_url": { "type": "string", "minLength": 1 },
+        "segment_index": { "type": "integer", "minimum": 0 },
+        "segment_count": { "type": "integer", "minimum": 1 },
+        "final": { "type": "boolean" }
+      }
+    },
+    "ttsFailedPayload": {
+      "type": "object",
+      "required": ["tts_id", "reply_to", "voice_id", "code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "tts_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 },
+        "voice_id": { "type": "string", "minLength": 1 },
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" }
       }
     },
     "ttsCancelledPayload": {
@@ -157,6 +324,55 @@
         "tts_id": { "type": "string", "minLength": 1 },
         "reply_to": { "type": "string", "minLength": 1 },
         "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ttsFinishedPayload": {
+      "description": "tts.finished 是双向类型：作为命令时只带 tts_id；作为服务端通知时额外带 reply_to。",
+      "type": "object",
+      "required": ["tts_id"],
+      "additionalProperties": false,
+      "properties": {
+        "tts_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": ["string", "null"] }
+      }
+    },
+    "voiceSelectedPayload": {
+      "type": "object",
+      "required": ["voice_id", "display_name"],
+      "additionalProperties": false,
+      "properties": {
+        "voice_id": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "turnCompletedPayload": {
+      "type": "object",
+      "required": ["turn_id", "reply_to"],
+      "additionalProperties": false,
+      "properties": {
+        "turn_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 }
+      }
+    },
+    "turnCancelledPayload": {
+      "type": "object",
+      "required": ["turn_id", "reply_to", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "turn_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "turnErrorPayload": {
+      "type": "object",
+      "required": ["turn_id", "reply_to", "code", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "turn_id": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": "string", "minLength": 1 },
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" }
       }
     },
     "errorPayload": {
@@ -170,6 +386,63 @@
           "description": "触发该错误的入站消息 id；无法关联时为 null。",
           "type": ["string", "null"]
         }
+      }
+    },
+    "sessionOpenPayload": {
+      "type": "object",
+      "required": [],
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "description": "显式 null 等价于省略（沿用当前连接会话）；后端 pydantic 允许 null。",
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "after": {
+          "description": "显式 null 等价于省略；后端 pydantic 允许 null。",
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "sessionHydratePayload": {
+      "description": "当前实现忽略 sections 与 after，总是返回全量 session.state；字段保留以兼容未来按需快照。两者显式传 null 等价于省略。",
+      "type": "object",
+      "required": [],
+      "additionalProperties": false,
+      "properties": {
+        "sections": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "after": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "userTextPayload": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "voiceSelectPayload": {
+      "type": "object",
+      "required": ["voice_id"],
+      "additionalProperties": false,
+      "properties": {
+        "voice_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ttsCancelPayload": {
+      "type": "object",
+      "required": ["tts_id"],
+      "additionalProperties": false,
+      "properties": {
+        "tts_id": { "type": "string", "minLength": 1 }
       }
     }
   }
