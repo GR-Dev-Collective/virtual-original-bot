@@ -318,7 +318,7 @@ allow_headers=["*"]
 - sidecar 单卡串行；超时不会中止推理线程，后续请求排队（见第 8 节）。
 - 8GB 显存下 IndexTTS 与 Ollama 同时占 GPU 会显著变慢，建议 `OLLAMA_NUM_GPU=0`。
 - `emotion.mode=text` 因缺 QwenEmotion 资源不可用；`character.state.emotion` 来自 Agent 结构化回复的情绪标签（可能为 `null`）。
-- Live2D 模型资源（`apps/desktop/public/live2d/mao/`）不随仓库分发；当前仅 Mao 示例，丛雨专属模型与正式口型未完成。
+- Live2D 模型资源（`apps/desktop/public/live2d/mao/`）不随仓库分发；当前仅 Mao 示例，丛雨专属模型与正式口型映射未完成；振幅口型已接入示例。
 - Electron 窗口内播放/停止/克隆交互未自动验证。
 - 仅支持本机 `127.0.0.1` / `localhost` 来源；无鉴权、无公网部署。
 - ASR 模型需本地准备；缺失时 `/asr` 失败但文本链路可用。

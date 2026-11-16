@@ -2,7 +2,7 @@ import './ui/styles.css'
 
 import { AudioPlayer } from './audio/player'
 import { AudioRecorder } from './audio/recorder'
-import { cloneVoice, httpBaseFromControlUrl, listVoices, type VoiceProfile } from './api/voices'
+import { cloneVoice, deleteVoice, httpBaseFromControlUrl, listVoices, type VoiceProfile } from './api/voices'
 import { Live2DController } from './live2d/controller'
 import { ControlClient } from './transport/control-client'
 import type {
@@ -135,6 +135,7 @@ function stopPlayback(): string | null {
   const ttsId = player.stop()
   activePlayback = null
   activeTtsId = null
+  live2d.setMouthLevel(0)
   chat.setAudioPlaying(false)
   live2d.setSpeaking(false)
   return ttsId
@@ -183,6 +184,39 @@ function replayHistoryAudio(messageId: string, audioUrl: string): void {
     client.sendTtsCancel(previousTtsId)
   }
   startPlayback('replay', `history:${messageId}`, audioUrl)
+}
+
+function auditionVoice(voiceId: string): void {
+  const interrupted = activePlayback
+  const previousTtsId = player.stop()
+  if (interrupted === 'tts' && previousTtsId) {
+    client.sendTtsCancel(previousTtsId)
+  }
+  const url = `${httpBase}/voices/${encodeURIComponent(voiceId)}/sample`
+  startPlayback('replay', `voice:${voiceId}`, url)
+  voiceView.setHint('正在试听参考音频…')
+}
+
+function removeVoice(voiceId: string): void {
+  const voice = findVoice(voiceId)
+  if (!voice || voice.builtin) {
+    return
+  }
+  if (!window.confirm(`删除音色「${voice.display_name}」？参考音频会一并删除。`)) {
+    return
+  }
+  voiceView.setHint('正在删除音色…')
+  void deleteVoice(httpBase, voiceId)
+    .then(async () => {
+      voiceView.setHint(`已删除音色：${voice.display_name}`)
+      if (currentVoiceId === voiceId) {
+        currentVoiceId = null
+      }
+      await refreshVoices({ selectDefault: currentVoiceId === null })
+    })
+    .catch((error: unknown) => {
+      voiceView.setHint(`删除失败：${describeError(error)}`, 'error')
+    })
 }
 
 function enqueueTtsSegment(payload: TtsReadyPayload): void {
@@ -549,6 +583,14 @@ voiceView.onSelect((voiceId) => {
   requestVoiceSelect(voiceId)
 })
 
+voiceView.onAudition((voiceId) => {
+  auditionVoice(voiceId)
+})
+
+voiceView.onDelete((voiceId) => {
+  removeVoice(voiceId)
+})
+
 voiceView.onCloneCancel(() => {
   voiceView.setCloneError(null)
 })
@@ -604,5 +646,14 @@ chat.onRecord(async (recording) => {
     chat.appendMessage('system', `录音失败：${describeError(error)}`)
   }
 })
+
+function animateMouth(): void {
+  if (player.isPlaying) {
+    live2d.setMouthLevel(player.getMouthLevel())
+  }
+  window.requestAnimationFrame(animateMouth)
+}
+
+window.requestAnimationFrame(animateMouth)
 
 client.connect()

@@ -18,3 +18,10 @@ def test_cors_does_not_allow_remote_origin() -> None:
     with TestClient(app) as client:
         remote = client.get("/health", headers={"Origin": "https://evil.example"})
         assert "access-control-allow-origin" not in remote.headers
+
+
+def test_cors_allows_media_fetch_from_renderer() -> None:
+    with TestClient(app) as client:
+        sample = client.get("/voices/murasame/sample", headers={"Origin": "null"})
+        assert sample.status_code == 200
+        assert sample.headers["access-control-allow-origin"] == "null"

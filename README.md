@@ -24,7 +24,8 @@
   - 音色档案：`backend/config/voices.json` 内置 `murasame`（丛雨），参考音频 `assets/voices/murasame/murasame_ref.wav`；用户克隆档案存 `backend/runtime/voices/`。
   - 情绪联动：Agent 返回 `{text, emotion}`；`character.state.emotion` 驱动 Live2D 示例表情，并转成 IndexTTS 8 维情感向量。
 - **桌面端**（`apps/desktop/`）
-  - `vob/1` 客户端：握手、`localStorage` 保存 `session_id`/`cursor`、断线重连与 `after` 重放、`session.hydrate` 快照恢复、`voice.select` 音色下拉、克隆面板、CSP 修正、播放结束回报 `tts.finished`。
+  - `vob/1` 客户端：握手、`localStorage` 保存 `session_id`/`cursor`、断线重连与 `after` 重放、`session.hydrate` 快照恢复、`voice.select` 音色下拉、克隆面板、音色试听/删除、CSP 修正、播放结束回报 `tts.finished`。
+  - Live2D 口型：用 Web Audio 分析播放振幅驱动 `ParamA`；无分析器时退回轻量合成动画。
   - `npm run typecheck` 与 `npm run build` 通过。
 
 ### 验证记录
@@ -339,6 +340,7 @@ backend/runtime/
 ```text
 GET    /voices                 列出音色与 default_voice_id
 POST   /voices                 上传参考音频克隆音色（multipart: name, audio, language）
+GET    /voices/{voice_id}/sample 试听参考音频（audio/wav）
 DELETE /voices/{voice_id}      删除用户克隆音色（内置音色 409）
 POST   /tts                    单次合成 {text, voice_id?}，返回 audio/wav
 GET    /tts/{audio_id}         取回已保存的 WAV
@@ -497,7 +499,7 @@ OLLAMA_NUM_CTX=4096
 
 - **Electron 窗口内的播放、停止、克隆面板交互未自动验证**；本文不宣称这些 UI 行为已经验收。
 - Live2D 解压后的模型与 Cubism Core 不随仓库分发（`apps/desktop/public/live2d/` 被忽略）；用 `scripts/prepare_live2d_assets.ps1` 准备。缺少资源时角色画布不可用，但协议与 TTS 链路不受影响。
-- 仅 Mao 示例模型用于加载/动作/表情验证；丛雨专属 Live2D、正式表情映射与自然口型同步未完成。口型由播放状态驱动 `ParamA`，不做音频振幅分析。
+- 仅 Mao 示例模型用于加载/动作/表情验证；丛雨专属 Live2D、正式表情映射与精细口型未完成。口型已接 Web Audio 振幅驱动 `ParamA`，缺失分析器时退回合成动画。
 - Memory / Relationship / Vision / OCR / Action Controller / World 未实现。
 - 复杂情绪建模/长期情绪未实现；Agent 的情绪标签已接入 `character.state.emotion`（可能为 `null`）。
 - 无 VAD、实时音频流；TTS 为分句级流式（逐句 WAV 就绪即播），不是网络级流式。

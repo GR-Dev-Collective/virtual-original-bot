@@ -152,3 +152,17 @@ def test_delete_user_voice_removes_files(client: TestClient, tmp_path) -> None:
     assert not (tmp_path / "voices" / profile["id"]).exists()
     assert [item["id"] for item in client.get("/voices").json()["voices"]] == ["murasame"]
     assert client.delete(f"/voices/{profile['id']}").status_code == 404
+
+
+def test_voice_sample_returns_reference_audio(client: TestClient) -> None:
+    response = client.get("/voices/murasame/sample")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/")
+    assert len(response.content) > 1000
+
+
+def test_voice_sample_unknown_is_not_found(client: TestClient) -> None:
+    response = client.get("/voices/does-not-exist/sample")
+
+    assert response.status_code == 404

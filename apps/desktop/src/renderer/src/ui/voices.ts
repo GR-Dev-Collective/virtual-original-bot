@@ -10,6 +10,8 @@ export type HintTone = 'info' | 'error'
 
 export interface VoiceView {
   onSelect(handler: (voiceId: string) => void): void
+  onAudition(handler: (voiceId: string) => void): void
+  onDelete(handler: (voiceId: string) => void): void
   onCloneSubmit(handler: (input: CloneInput) => void): void
   onCloneCancel(handler: () => void): void
   setVoices(voices: VoiceProfile[], selectedId: string | null): void
@@ -34,6 +36,8 @@ function requireElement<T extends HTMLElement>(id: string): T {
 export function createVoiceView(): VoiceView {
   const select = requireElement<HTMLSelectElement>('voice-select')
   const cloneOpen = requireElement<HTMLButtonElement>('voice-clone-open')
+  const audition = requireElement<HTMLButtonElement>('voice-audition')
+  const remove = requireElement<HTMLButtonElement>('voice-delete')
   const hint = requireElement<HTMLElement>('voice-hint')
   const panel = requireElement<HTMLElement>('clone-panel')
   const form = requireElement<HTMLFormElement>('clone-form')
@@ -45,9 +49,12 @@ export function createVoiceView(): VoiceView {
   const cancel = requireElement<HTMLButtonElement>('clone-cancel')
 
   let selectHandler: (voiceId: string) => void = () => {}
+  let auditionHandler: (voiceId: string) => void = () => {}
+  let deleteHandler: (voiceId: string) => void = () => {}
   let submitHandler: (input: CloneInput) => void = () => {}
   let cancelHandler: () => void = () => {}
   let busy = false
+  let currentProfiles: VoiceProfile[] = []
 
   function setHint(text: string, tone: HintTone = 'info'): void {
     hint.textContent = text
@@ -90,15 +97,25 @@ export function createVoiceView(): VoiceView {
 
   function setSelected(voiceId: string | null): void {
     if (!voiceId) {
+      updateActions()
       return
     }
     const exists = Array.from(select.options).some((option) => option.value === voiceId)
     if (exists) {
       select.value = voiceId
     }
+    updateActions()
+  }
+
+  function updateActions(): void {
+    const selectedId = select.value
+    const profile = currentProfiles.find((voice) => voice.id === selectedId) ?? null
+    audition.disabled = !profile
+    remove.disabled = !profile || profile.builtin
   }
 
   function setVoices(voices: VoiceProfile[], selectedId: string | null): void {
+    currentProfiles = voices
     select.replaceChildren()
 
     if (voices.length === 0) {
@@ -108,6 +125,7 @@ export function createVoiceView(): VoiceView {
       select.append(option)
       select.value = ''
       select.disabled = true
+      updateActions()
       return
     }
 
@@ -122,11 +140,25 @@ export function createVoiceView(): VoiceView {
     const fallback = voices[0] ? voices[0].id : ''
     const target = selectedId && voices.some((voice) => voice.id === selectedId) ? selectedId : fallback
     select.value = target
+    updateActions()
   }
 
   select.addEventListener('change', () => {
+    updateActions()
     if (select.value) {
       selectHandler(select.value)
+    }
+  })
+
+  audition.addEventListener('click', () => {
+    if (select.value) {
+      auditionHandler(select.value)
+    }
+  })
+
+  remove.addEventListener('click', () => {
+    if (select.value) {
+      deleteHandler(select.value)
     }
   })
 
@@ -164,6 +196,12 @@ export function createVoiceView(): VoiceView {
   return {
     onSelect(handler) {
       selectHandler = handler
+    },
+    onAudition(handler) {
+      auditionHandler = handler
+    },
+    onDelete(handler) {
+      deleteHandler = handler
     },
     onCloneSubmit(handler) {
       submitHandler = handler

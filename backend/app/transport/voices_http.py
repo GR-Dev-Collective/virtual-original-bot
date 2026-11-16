@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.models.tts.base import VALID_LANGUAGES
@@ -83,6 +83,21 @@ async def create_voice(
         _cleanup(destination)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _view(profile)
+
+
+@router.get("/{voice_id}/sample")
+async def voice_sample(voice_id: str, request: Request) -> FileResponse:
+    """试听参考音频；只返回注册表里已知档案的文件。"""
+
+    registry = _registry(request)
+    try:
+        profile = registry.get(voice_id)
+    except VoiceNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    path = profile.reference_audio_path
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="参考音频不存在")
+    return FileResponse(path, media_type="audio/wav")
 
 
 @router.delete("/{voice_id}", status_code=204)

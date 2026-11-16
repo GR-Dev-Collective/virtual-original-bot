@@ -21,6 +21,10 @@ export class AudioPlayer {
   private queue: QueuedSegment[] = []
   private handlers: SegmentHandlers | null = null
   private finalPlayed = false
+  private context: AudioContext | null = null
+  private analyser: AnalyserNode | null = null
+  private sourceNode: MediaElementAudioSourceNode | null = null
+  private waveform: Uint8Array<ArrayBuffer> | null = null
 
   play(
     ttsId: string,
@@ -28,7 +32,7 @@ export class AudioPlayer {
     handlers: { onStarted(): void; onEnded(): void; onError(): void }
   ): void {
     this.stop()
-    const audio = new Audio(url)
+    const audio = this.createAudio(url)
     this.audio = audio
     this.activeTtsId = ttsId
     audio.addEventListener('playing', handlers.onStarted, { once: true })
@@ -81,6 +85,24 @@ export class AudioPlayer {
     return this.audio !== null
   }
 
+  /** 0..1 的实时振幅，用于 Live2D 口型；没有音频或分析器时返回 0。 */
+  getMouthLevel(): number {
+    const analyser = this.analyser
+    if (!analyser || !this.audio) {
+      return 0
+    }
+    if (!this.waveform || this.waveform.length !== analyser.fftSize) {
+      this.waveform = new Uint8Array(new ArrayBuffer(analyser.fftSize))
+    }
+    analyser.getByteTimeDomainData(this.waveform)
+    let sum = 0
+    for (const value of this.waveform) {
+      const centered = (value - 128) / 128
+      sum += centered * centered
+    }
+    return Math.min(1, Math.sqrt(sum / this.waveform.length) * 6)
+  }
+
   private playNext(): void {
     const segment = this.queue.shift()
     const handlers = this.handlers
@@ -88,7 +110,7 @@ export class AudioPlayer {
       return
     }
 
-    const audio = new Audio(segment.url)
+    const audio = this.createAudio(segment.url)
     this.audio = audio
     this.activeTtsId = segment.ttsId
     audio.addEventListener('playing', handlers.onStarted, { once: true })
@@ -137,5 +159,34 @@ export class AudioPlayer {
     this.audio?.removeAttribute('src')
     this.audio?.load()
     this.audio = null
+    this.sourceNode?.disconnect()
+    this.sourceNode = null
+  }
+
+  private createAudio(url: string): HTMLAudioElement {
+    const audio = new Audio()
+    // 音频来自后端（跨源）；加 anonymous 才能接 Web Audio 分析器。
+    audio.crossOrigin = 'anonymous'
+    audio.src = url
+    this.attachAnalyser(audio)
+    return audio
+  }
+
+  private attachAnalyser(audio: HTMLAudioElement): void {
+    try {
+      this.context = this.context ?? new AudioContext()
+      void this.context.resume()
+      if (!this.analyser) {
+        this.analyser = this.context.createAnalyser()
+        this.analyser.fftSize = 512
+        this.analyser.connect(this.context.destination)
+      }
+      this.sourceNode?.disconnect()
+      this.sourceNode = this.context.createMediaElementSource(audio)
+      this.sourceNode.connect(this.analyser)
+    } catch {
+      // 浏览器不支持/被策略拒绝时退化为无声谱口型，不影响播放。
+      this.analyser = null
+    }
   }
 }
