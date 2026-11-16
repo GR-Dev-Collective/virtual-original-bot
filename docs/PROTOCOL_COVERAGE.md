@@ -79,7 +79,7 @@
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| Memory / Relationship | MVP 已实现 | 显式指令（记住/叫我/喜欢/讨厌）→ `runtime/memory/memory.json`；每回合好感度与关系阶段注入 prompt；`/memory` CRUD。自动抽取/向量检索未做 |
+| Memory / Relationship | MVP 已实现 | 显式指令与低风险档案（生日/居住/工作）→ `runtime/memory/memory.json`；每回合好感度、关系阶段与阶段语气注入 prompt；`/memory` CRUD。自动抽取/向量检索未做 |
 | Vision / OCR / Video | 未实现 | `backend/app/models/vision/`、`ocr/` 只有空包 |
 | Action Controller | 未实现 | `backend/app/actions/` 只有空包；没有 action 注册、参数校验或结果回传 |
 | World | 未实现 | 没有时间、环境、主动行为循环 |

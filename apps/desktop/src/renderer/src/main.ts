@@ -4,7 +4,7 @@ import { AudioPlayer } from './audio/player'
 import { AudioRecorder } from './audio/recorder'
 import { cloneVoice, deleteVoice, httpBaseFromControlUrl, listVoices, renameVoice, type VoiceProfile } from './api/voices'
 import { listSessions } from './api/sessions'
-import { addMemoryNote, deleteMemoryNote, getMemory } from './api/memory'
+import { addMemoryNote, deleteMemoryNote, getMemory, setMemoryName } from './api/memory'
 import { Live2DController } from './live2d/controller'
 import { ControlClient } from './transport/control-client'
 import type {
@@ -684,6 +684,14 @@ memoryView.onDelete((noteId) => {
     .then(() => refreshMemory())
     .catch((error: unknown) => {
       memoryView.setError(`删除记忆失败：${describeError(error)}`)
+    })
+})
+
+memoryView.onName((name) => {
+  void setMemoryName(httpBase, name)
+    .then(() => refreshMemory())
+    .catch((error: unknown) => {
+      memoryView.setError(`修改称呼失败：${describeError(error)}`)
     })
 })
 

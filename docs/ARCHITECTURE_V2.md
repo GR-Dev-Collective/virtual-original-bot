@@ -252,7 +252,7 @@ backend/runtime/
 - 内置档案：`murasame`（`assets/voices/murasame/murasame_ref.wav`，ZH，零样本克隆）。
 - 克隆：`POST /voices`（multipart：name/audio/language）→ PyAV 解码并规范化为 16-bit mono WAV（WAV 保留源采样率；非 WAV 统一 44.1kHz）→ 校验 1–60s → 存 `runtime/voices/<id>/reference.wav` → 写 `profiles.json` → 201。`PATCH /voices/{id}` 重命名、`GET /voices/{id}/sample` 试听、`DELETE /voices/{id}` 只删用户档案；内置档案 409。
 - 会话列表：`GET /sessions` 扫描 `runtime/sessions/*`，标题取首条用户消息，按最近消息倒序；桌面端用它做会话切换/新建。
-- Memory（MVP）：`backend/app/memory/store.py` 持久化 `runtime/memory/memory.json`；识别“记住…”“叫我…”“我喜欢/讨厌…”显式指令，每回合累计好感度并映射关系阶段；`context_text()` 在每回合注入 system prompt。`GET/POST/DELETE/PATCH /memory` 供桌面面板查看/增删备注与改称呼。不做自动抽取或向量检索。
+- Memory（MVP）：`backend/app/memory/store.py` 持久化 `runtime/memory/memory.json`；识别“记住…”“叫我…”“我喜欢/讨厌…”与“我的生日是…/我住在…/我在…工作”等低风险档案，每回合累计好感度并映射关系阶段（附带阶段语气），`context_text()` 在每回合注入 system prompt。`GET/POST/DELETE/PATCH /memory` 供桌面面板查看/增删备注与改称呼。不做自动抽取或向量检索。
 - TTS Port 请求：`text`、`reference_audio`（绝对路径）、`language`、`emotion`（可选）、`duration_factor`、`provider_options`。
   - `IndexTtsProvider` 转 sidecar 契约（`POST /synthesize`），只发送非空字段；`provider_options` 不发给 IndexTTS。
   - `GptSovitsProvider` 用档案 `gpt_sovits` 段的容器内路径/prompt；缺省退回请求里的绝对路径。

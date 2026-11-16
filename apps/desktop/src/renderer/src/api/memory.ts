@@ -60,3 +60,15 @@ export async function deleteMemoryNote(baseUrl: string, noteId: string): Promise
     throw new Error(await readDetail(response))
   }
 }
+
+export async function setMemoryName(baseUrl: string, name: string): Promise<MemoryState> {
+  const response = await fetch(`${baseUrl}/memory/user`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  })
+  if (!response.ok) {
+    throw new Error(await readDetail(response))
+  }
+  return (await response.json()) as MemoryState
+}

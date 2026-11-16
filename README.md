@@ -26,8 +26,8 @@
   - 音色档案：`backend/config/voices.json` 内置 `murasame`（丛雨），参考音频 `assets/voices/murasame/murasame_ref.wav`；用户克隆档案存 `backend/runtime/voices/`。
   - 情绪联动：Agent 返回 `{text, emotion}`；`character.state.emotion` 驱动 Live2D 示例表情，并转成 IndexTTS 8 维情感向量。
 - **Memory（MVP）**
-  - `backend/app/memory/store.py`：本地 `runtime/memory/memory.json`；显式指令识别（“记住…”“叫我…”“我喜欢…”），互动次数与好感度/关系阶段（初识/熟悉/亲近/信赖）。
-  - 每回合把整理后的长期记忆注入 system prompt；`GET/POST/DELETE/PATCH /memory` 与桌面“记忆”面板可查看/添加/删除备注。
+  - `backend/app/memory/store.py`：本地 `runtime/memory/memory.json`；识别显式指令（“记住…”“叫我…”“我喜欢…”）和低风险档案（“我的生日是…”“我住在…”“我在…工作”），互动次数与好感度/关系阶段（初识/熟悉/亲近/信赖）。
+  - 每回合把整理后的长期记忆 + 阶段语气注入 system prompt；`GET/POST/DELETE/PATCH /memory` 与桌面“记忆”面板可查看/添加/删除备注、修改称呼。
 - **桌面端**（`apps/desktop/`）
   - `vob/1` 客户端：握手、`localStorage` 保存 `session_id`/`cursor`、断线重连与 `after` 重放、`session.hydrate` 快照恢复、会话列表/切换/新建、`voice.select` 音色下拉、克隆面板、音色试听/重命名/删除、CSP 修正、播放结束回报 `tts.finished`。
   - Live2D 口型：用 Web Audio 分析播放振幅驱动 `ParamA`；无分析器时退回轻量合成动画。

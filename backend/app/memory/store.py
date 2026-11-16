@@ -31,6 +31,16 @@ _NOTE_ID_PATTERN = re.compile(r"\A[a-f0-9]{8,32}\Z")
 _REMEMBER = re.compile(r"^\s*(?:请)?记住[：:，,\s]+(.+?)\s*$")
 _CALL_ME = re.compile(r"^\s*(?:以后)?(?:叫我|我叫)[：:，,\s]*(.+?)[。！!？?]*\s*$")
 _PREFERENCE = re.compile(r"^\s*我(喜欢|讨厌|不喜欢)(.+?)\s*$")
+_BIRTHDAY = re.compile(r"^\s*我的生日是[：:，,\s]*(.+?)[。！!？?]*\s*$")
+_LIVE_IN = re.compile(r"^\s*我(?:住在|来自)[：:，,\s]*(.+?)[。！!？?]*\s*$")
+_WORK_AT = re.compile(r"^\s*我在(.+?)(?:工作|上班)[。！!？?]*\s*$")
+
+_STAGE_TONE = {
+    "初识": "保持礼貌，留一点距离，不要过度亲昵。",
+    "熟悉": "语气放松一些，可以偶尔主动关心。",
+    "亲近": "可以自然地关心用户，使用更亲近的称呼。",
+    "信赖": "像长期伙伴一样直接、放松，可以适度开玩笑。",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +119,9 @@ class MemoryStore:
             f"- 关系：{relationship['stage']}（好感度 {relationship['affinity']}/{AFFINITY_MAX}，"
             f"共同对话 {relationship['interactions']} 次）"
         )
+        tone = _STAGE_TONE.get(relationship["stage"])
+        if tone:
+            lines.append(f"- 当前相处方式：{tone}")
         notes = data["notes"]
         if notes:
             lines.append("- 你记得的事情：")
@@ -178,6 +191,21 @@ class MemoryStore:
         preference = _PREFERENCE.match(text)
         if preference:
             self.add_note(f"{preference.group(1)}：{preference.group(2)}", kind="preference")
+            return
+
+        birthday = _BIRTHDAY.match(text)
+        if birthday:
+            self.add_note(f"生日：{birthday.group(1).strip()}", kind="profile")
+            return
+
+        live_in = _LIVE_IN.match(text)
+        if live_in:
+            self.add_note(f"居住/来自：{live_in.group(1).strip()}", kind="profile")
+            return
+
+        work_at = _WORK_AT.match(text)
+        if work_at:
+            self.add_note(f"工作：{work_at.group(1).strip()}", kind="profile")
 
     def record_turn(self) -> None:
         with self._lock:

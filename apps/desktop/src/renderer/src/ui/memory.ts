@@ -4,6 +4,7 @@ export interface MemoryView {
   onOpen(handler: () => void): void
   onAdd(handler: (text: string) => void): void
   onDelete(handler: (noteId: string) => void): void
+  onName(handler: (name: string) => void): void
   setState(state: MemoryState): void
   setError(text: string | null): void
   isOpen(): boolean
@@ -21,6 +22,7 @@ export function createMemoryView(): MemoryView {
   const openButton = requireElement<HTMLButtonElement>('memory-open')
   const panel = requireElement<HTMLElement>('memory-panel')
   const closeButton = requireElement<HTMLButtonElement>('memory-close')
+  const nameButton = requireElement<HTMLButtonElement>('memory-name')
   const summary = requireElement<HTMLElement>('memory-summary')
   const list = requireElement<HTMLUListElement>('memory-notes')
   const form = requireElement<HTMLFormElement>('memory-form')
@@ -30,6 +32,8 @@ export function createMemoryView(): MemoryView {
   let openHandler: () => void = () => {}
   let addHandler: (text: string) => void = () => {}
   let deleteHandler: (noteId: string) => void = () => {}
+  let nameHandler: (name: string) => void = () => {}
+  let currentName: string | null = null
 
   function setError(text: string | null): void {
     errorBox.textContent = text ?? ''
@@ -42,6 +46,7 @@ export function createMemoryView(): MemoryView {
 
   function setState(state: MemoryState): void {
     setError(null)
+    currentName = state.user_name
     const relationship = state.relationship
     const name = state.user_name ? `称呼：${state.user_name}` : '称呼：未设置'
     summary.textContent =
@@ -78,6 +83,12 @@ export function createMemoryView(): MemoryView {
   closeButton.addEventListener('click', () => {
     panel.hidden = true
   })
+  nameButton.addEventListener('click', () => {
+    const name = window.prompt('希望我怎么称呼你？', currentName ?? '')
+    if (name !== null) {
+      nameHandler(name.trim())
+    }
+  })
   form.addEventListener('submit', (event) => {
     event.preventDefault()
     const text = input.value.trim()
@@ -97,6 +108,9 @@ export function createMemoryView(): MemoryView {
     },
     onDelete(handler) {
       deleteHandler = handler
+    },
+    onName(handler) {
+      nameHandler = handler
     },
     setState,
     setError,
