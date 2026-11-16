@@ -21,10 +21,28 @@ def client(tmp_path, monkeypatch) -> Iterator[TestClient]:
 def test_lists_sessions_newest_first(client: TestClient) -> None:
     store = app.state.runtime.store
     first = store.create_session()
-    store.append_message(first.session_id, role="user", text="第一句 你好", message_id="m1")
-    store.append_message(first.session_id, role="assistant", text="你好。", message_id="a1")
+    store.append_message(
+        first.session_id,
+        role="user",
+        text="第一句 你好",
+        message_id="m1",
+        ts=1000,
+    )
+    store.append_message(
+        first.session_id,
+        role="assistant",
+        text="你好。",
+        message_id="a1",
+        ts=1100,
+    )
     second = store.create_session()
-    store.append_message(second.session_id, role="user", text="第二个会话", message_id="m2")
+    store.append_message(
+        second.session_id,
+        role="user",
+        text="第二个会话",
+        message_id="m2",
+        ts=2000,
+    )
 
     response = client.get("/sessions")
 

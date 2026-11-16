@@ -133,7 +133,10 @@ class SessionStore:
                         "voice_id": meta.voice_id,
                     }
                 )
-        sessions.sort(key=lambda item: item["updated_at"], reverse=True)
+        sessions.sort(
+            key=lambda item: (item["updated_at"], item["created_at"], item["session_id"]),
+            reverse=True,
+        )
         return sessions
 
     def set_voice_id(self, session_id: str, voice_id: str) -> SessionMeta:
