@@ -1,5 +1,7 @@
 # virtual-original-bot
 
+[![CI](https://github.com/GR-Dev-Collective/virtual-original-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/GR-Dev-Collective/virtual-original-bot/actions/workflows/ci.yml)
+
 虚拟角色桌面原型：Electron 渲染角色与聊天界面，FastAPI 后端负责会话、回合、事件账本与模型编排，本地 Ollama 生成回复，IndexTTS-2.5 完成零样本音色克隆与语音合成。
 
 当前版本是 **v2 运行时**：控制通道升级为版本化协议 `vob/1`，会话可以持久化、断线重放与 `hydrate` 恢复；TTS 默认走 IndexTTS-2.5 sidecar，GPT-SoVITS 保留为 legacy 可选实现。
@@ -123,6 +125,26 @@ virtual-original-bot/
 ## 快速开始
 
 以下命令默认在**仓库根目录**打开 PowerShell。后端起在 `127.0.0.1:8090`，IndexTTS sidecar 在 `127.0.0.1:9882`，Ollama 在 `127.0.0.1:11434`；标注「另开终端」的步骤需要保持前一个进程继续运行。
+
+### 一键启动（推荐）
+
+`scripts/start_all.ps1` 会依次启动 sidecar、等待 `/health`、启动后端，然后（默认）打开桌面端；日志写到 `backend/runtime/logs/`，PID 写入同一目录的 `start_all.json`。
+
+```powershell
+# 8GB 显卡推荐让 LLM 走 CPU
+powershell -ExecutionPolicy Bypass -File scripts\start_all.ps1 -OllamaModel qwen3:4b -OllamaNumGpu 0
+
+# 只起 sidecar + 后端
+powershell -ExecutionPolicy Bypass -File scripts\start_all.ps1 -NoDesktop
+
+# 无 GPU 联调（MockEngine）
+powershell -ExecutionPolicy Bypass -File scripts\start_all.ps1 -Mock -NoDesktop
+
+# 停止（按 start_all.json 与端口清理）
+powershell -ExecutionPolicy Bypass -File scripts\stop_all.ps1
+```
+
+也可以按下面的步骤手动启动。
 
 ### 0. 前置条件
 
@@ -538,3 +560,7 @@ OLLAMA_NUM_CTX=4096
 - [`shared/contracts/protocol.md`](shared/contracts/protocol.md)：`vob/1` 字段级协议。
 - [`services/indextts_service/README.md`](services/indextts_service/README.md)：sidecar 环境变量、API 与 Mock 模式。
 - [`docker/gpt-sovits/README.md`](docker/gpt-sovits/README.md)：legacy GPT-SoVITS 的容器路径映射。
+
+---
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
